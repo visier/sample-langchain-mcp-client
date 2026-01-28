@@ -1,0 +1,13 @@
+[project]
+name = "visier-mcp-langchain-client"
+version = "0.1.0"
+description = "Visier MCP Langchain client"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "langchain==1.1.2",
+    "langchain-aws==1.1.0",
+    "langchain-ollama",
+    "langchain-mcp-adapters==0.1.14",
+    "langgraph==1.0.4",
+]
