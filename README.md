@@ -2,12 +2,6 @@
 
 This project provides a LangGraph MCP (Model Context Protocol) client for connecting to a Visier MCP server using OAuth 2.0 authorization code flow. It features a web UI that lets you interact with an AI agent to query your Visier data.
 
-**LLM Options:**
--  **AWS Bedrock (Claude Sonnet)** - Premium cloud AI (requires AWS credentials)
--  **Ollama (Local)** - With qwen2.5 installed
-
-**⚠️ Important**: If you don't have AWS Bedrock credentials, the system will automatically use Ollama with the `qwen2.5` model. You must install Ollama and download this specific model before running the application.
-
 ## Features
 
 - **OAuth 2.0 Authentication**: Secure connection to your Visier tenant
@@ -38,11 +32,7 @@ sample-langgraph-mcp-client/
 
 - Python 3.8+
 - Access to a Visier tenant with OAuth client credentials
-- **LLM Choice** (one of the following):
-  - **Option A**: AWS account with Bedrock access (premium, cloud-based)
-  - **Option B**: Ollama installed locally with `qwen2.5` model (free, runs on your machine)
-- Required Python packages (Install all with `uv sync`):
-  - `langgraph`, `langchain-mcp-adapters`, `langchain`, `langchain-aws`, `langchain-ollama`
+- Required Python packages (Install all with `uv sync`)
 
 ## Required Environment Variables
 
@@ -102,7 +92,6 @@ Before running the client, you must set the following environment variables:
 **Optional**: AWS region for Bedrock
 - **Description**: AWS region where your Bedrock models are available
 - **Default**: `us-west-2`
-- **Example**: `export AWS_REGION_BEDROCK="us-east-1"`
 
 ### Anthropic Variables
 
@@ -110,7 +99,6 @@ Before running the client, you must set the following environment variables:
 **Required for Anthropic**: Anthropic API key
 - **Description**: Your Anthropic API key for direct Claude access
 - **Note**: Required when using `LLM_PROVIDER=anthropic`
-- **Example**: `export ANTHROPIC_API_KEY="sk-ant-..."`
 
 ### OpenAI Variables
 
@@ -118,23 +106,13 @@ Before running the client, you must set the following environment variables:
 **Required for OpenAI**: OpenAI API key
 - **Description**: Your OpenAI API key for GPT model access
 - **Note**: Required when using `LLM_PROVIDER=openai`
-- **Example**: `export OPENAI_API_KEY="sk-..."`
 
 ### Development & Debugging Variables
 
 #### `VERBOSE_LLM_LOGGING`
 **Optional**: Enable detailed LLM logging
 - **Description**: Controls verbose logging of LLM interactions
-- **Options**: `true`, `false`
 - **Default**: `false`
-- **Example**: `export VERBOSE_LLM_LOGGING="true"`
-
-### Legacy AWS Variables (Still Supported)
-
-#### `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
-**Optional**: Legacy AWS credentials
-- **Description**: Traditional AWS credentials (still supported for backward compatibility)
-- **Note**: Use `AWS_BEARER_TOKEN_BEDROCK` for modern Bedrock authentication
 
 ## Setup Instructions
 
