@@ -2,17 +2,18 @@ import asyncio
 import os
 import traceback
 import webbrowser
+import logging
 from threading import Thread
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.shared.auth import OAuthToken, OAuthClientInformationFull, ProtectedResourceMetadata
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain.agents import create_agent
-from langchain_aws import ChatBedrockConverse
-from langchain_ollama import ChatOllama
 from pydantic import AnyHttpUrl
+from client.llm_provider import LLM_PROVIDER, get_llm_provider, get_current_model_name
 from web.web_ui_server import WebUIServer
 from .messages import SYSTEM_PROMPT
+from .oauth2 import OAuthPasswordGrantClientProvider
 
 # Check for required environment variables
 if (os.environ.get("VISIER_OAUTH_CLIENT_ID") is None or
@@ -20,14 +21,17 @@ if (os.environ.get("VISIER_OAUTH_CLIENT_ID") is None or
     os.environ.get("VISIER_MCP_SERVER_URL") is None):
     raise ValueError("Please set VISIER_OAUTH_CLIENT_ID, VISIER_OAUTH_CLIENT_SECRET, and VISIER_MCP_SERVER_URL environment variables. See README for details.")
 
-USE_BEDROCK = (os.environ.get("AWS_ACCESS_KEY_ID") is not None and
-               os.environ.get("AWS_SECRET_ACCESS_KEY") is not None and
-               os.environ.get("AWS_SESSION_TOKEN") is not None)
+USE_PASSWORD_GRANT = (os.environ.get("VISIER_USERNAME") is not None and
+                      os.environ.get("VISIER_PASSWORD") is not None)
 
 VISIER_OAUTH_CLIENT_ID = os.environ["VISIER_OAUTH_CLIENT_ID"]
 VISIER_OAUTH_CLIENT_SECRET = os.environ["VISIER_OAUTH_CLIENT_SECRET"]
 VISIER_MCP_SERVER_URL = os.environ["VISIER_MCP_SERVER_URL"]
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5")
+VISIER_USERNAME = os.environ.get("VISIER_USERNAME")
+VISIER_PASSWORD = os.environ.get("VISIER_PASSWORD")
+VISIER_TOKEN_ENDPOINT_URL = os.environ.get("VISIER_TOKEN_ENDPOINT_URL")
+
+VERBOSE_LLM_LOGGING = os.environ.get("VERBOSE_LLM_LOGGING", "false").lower() == "false"
 
 OAUTH_CLIENT_STATIC_METADATA = OAuthClientInformationFull(
     client_name="LangChain MCP client for Visier MCP server",
@@ -61,16 +65,45 @@ def get_server_url():
 
 def get_model_name():
     """Callback function to get the current model name"""
-    if USE_BEDROCK:
-        return "AWS Bedrock (Claude Sonnet)"
-    else:
-        return f"Ollama ({OLLAMA_MODEL})"
+    return f"{LLM_PROVIDER} ({get_current_model_name()})"
 
 def get_tools():
-    """Callback function to get the available tools list"""
-    return [tool.name for tool in available_tools]
+    """Callback function to get the available tools list with full details"""
+    tools_details = []
+    for tool in available_tools:
+        tool_info = {
+            'name': tool.name,
+            'description': getattr(tool, 'description', 'No description available'),
+            'args': getattr(tool, 'args', {}),
+            'args_schema': None
+        }
+        if hasattr(tool, 'args_schema') and tool.args_schema:
+            try:
+                if hasattr(tool.args_schema, 'model_json_schema'):
+                    tool_info['args_schema'] = tool.args_schema.model_json_schema()
+                elif hasattr(tool.args_schema, 'schema'):
+                    tool_info['args_schema'] = tool.args_schema.schema
+                else:
+                    # Convert to dict if possible, otherwise stringify
+                    try:
+                        import json
+                        if hasattr(tool.args_schema, '__dict__'):
+                            tool_info['args_schema'] = json.loads(json.dumps(tool.args_schema.__dict__, default=str))
+                        else:
+                            tool_info['args_schema'] = json.loads(json.dumps(tool.args_schema, default=str))
+                    except:
+                        tool_info['args_schema'] = str(tool.args_schema)
+            except:
+                tool_info['args_schema'] = str(tool.args_schema)
+        elif hasattr(tool, 'get_params_definition'):
+            try:
+                tool_info['args_schema'] = tool.get_params_definition()
+            except:
+                tool_info['args_schema'] = "Schema unavailable"
+        tools_details.append(tool_info)
 
-# Set up the callbacks
+    return tools_details
+
 ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools)
 
 class InMemoryTokenStorage(TokenStorage):
@@ -98,7 +131,7 @@ async def automated_callback_handler() -> tuple[str, str | None]:
     
     print("Authenticating and fetching tools from MCP server...")
     while captured_code is None:
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.1)  # Faster polling for OAuth callback
     return captured_code, captured_state
 
 async def handle_redirect(auth_url: str) -> None:
@@ -108,21 +141,39 @@ async def handle_redirect(auth_url: str) -> None:
 # --- MAIN ---
 async def main():
     global app_agent
-    
-    print("Starting MCP client with OAuth authentication...")
-    oauth_provider = OAuthClientProvider(
-        server_url=VISIER_MCP_SERVER_URL,
-        client_metadata=OAUTH_CLIENT_STATIC_METADATA,
-        storage=InMemoryTokenStorage(),
-        redirect_handler=handle_redirect,
-        callback_handler=automated_callback_handler
-    )
 
-    auth_server_url=VISIER_MCP_SERVER_URL.rstrip("/") + "/hr/oauth2"
-    oauth_provider.context.protected_resource_metadata = ProtectedResourceMetadata(
-        resource=AnyHttpUrl(VISIER_MCP_SERVER_URL),
-        authorization_servers=[AnyHttpUrl(auth_server_url)]
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
+    os.environ["LANGCHAIN_VERBOSE"] = f"{VERBOSE_LLM_LOGGING}"
+    
+    if USE_PASSWORD_GRANT:
+        print("Starting MCP client with OAuth Password Grant authentication...")
+        oauth_provider = OAuthPasswordGrantClientProvider(
+            server_url=VISIER_MCP_SERVER_URL,
+            username=VISIER_USERNAME,
+            password=VISIER_PASSWORD,
+            client_id=OAUTH_CLIENT_STATIC_METADATA.client_id,
+            client_secret=OAUTH_CLIENT_STATIC_METADATA.client_secret,
+            storage=InMemoryTokenStorage(),
+            token_endpoint_url=VISIER_TOKEN_ENDPOINT_URL
+        )
+    else:
+        print("Starting MCP client with OAuth Authorization Code Grant authentication...")
+        oauth_provider = OAuthClientProvider(
+            server_url=VISIER_MCP_SERVER_URL,
+            client_metadata=OAUTH_CLIENT_STATIC_METADATA,
+            storage=InMemoryTokenStorage(),
+            redirect_handler=handle_redirect,
+            callback_handler=automated_callback_handler
+        )
+
+        auth_server_url=VISIER_MCP_SERVER_URL.rstrip("/") + "/hr/oauth2"
+        oauth_provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+            resource=AnyHttpUrl(VISIER_MCP_SERVER_URL),
+            authorization_servers=[AnyHttpUrl(auth_server_url)]
+        )
 
     client = MultiServerMCPClient({
         "visier-service": {
@@ -133,32 +184,27 @@ async def main():
     })
 
     try:
-        print("Connecting and exchanging token...")
-        tools = await client.get_tools()
-        available_tools.extend(tools)  # Store tools globally
-        print(f"\n Authenticated! Tools: {[t.name for t in tools]}")
-        
-        # Create agent with appropriate LLM and system prompt
-        if USE_BEDROCK:
-            print("\n Creating AWS Bedrock agent...")
-            base_model = ChatBedrockConverse(
-                model_id="us.anthropic.claude-3-5-sonnet-20240620-v1:0",
-                region_name="us-west-2"
-            )
-        else:
-            print(f"\n Creating Ollama agent with model={OLLAMA_MODEL}...")
-            base_model = ChatOllama(model=OLLAMA_MODEL)
+        mcp_tools = await client.get_tools()
+        available_tools.extend(mcp_tools)
+        print(f"\n Authenticated! Tools: {[t.name for t in mcp_tools]}")
 
-        app_agent = create_agent(base_model, tools, system_prompt=SYSTEM_PROMPT)
+        app_agent = create_agent(
+            get_llm_provider(), 
+            mcp_tools,
+            system_prompt=SYSTEM_PROMPT,
+            debug=VERBOSE_LLM_LOGGING
+        )
 
-        # Start the web UI
+        ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools)
+
+        # Start the web UI after successful authentication
         ui_server.start_ui_in_background()
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)  # Just a tiny delay to let the server start
         ui_server.open_ui()
 
         try:
             while True:
-                await asyncio.sleep(1)
+                await asyncio.sleep(5)  # Longer sleep since this is just keepalive
         except KeyboardInterrupt:
             print("\nShutting down...")
         

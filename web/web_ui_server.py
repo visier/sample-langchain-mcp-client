@@ -69,10 +69,36 @@ class WebUIHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(response_data).encode('utf-8'))
         
+        elif path == '/assets/logo.png' or path == '/styles.css':
+            import os
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            if path == '/assets/logo.png':
+                asset_path = os.path.join(script_dir, 'assets', 'logo.png')
+                content_type = 'image/png'
+            elif path == '/styles.css':
+                asset_path = os.path.join(script_dir, 'styles.css')
+                content_type = 'text/css'
+            
+            try:
+                with open(asset_path, 'rb') as f:
+                    content = f.read()
+                    
+                self.send_response(200)
+                self.send_header('Content-type', content_type)
+                self.send_header('Cache-Control', 'public, max-age=3600')
+                self.end_headers()
+                self.wfile.write(content)
+                
+            except FileNotFoundError:
+                self.send_response(404)
+                self.send_header('Content-type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b"Asset not found")
+        
         else:
             self.send_response(404)
-            self.end_headers()
-            self.wfile.write(b"Not found")
+            self.send_header('Content-type', 'text/plain')
             self.end_headers()
             self.wfile.write(b"Not found")
     
@@ -93,10 +119,10 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 if hasattr(WebUIHandler, 'get_agent'):
                     agent = WebUIHandler.get_agent()
                     if agent is None:
-                        self._send_json_response({'success': False, 'error': 'Agent not initialized'})
+                        self._send_json_response({'success': False, 'error': 'Agent not ready yet - please wait for authentication to complete'})
                         return
                 else:
-                    self._send_json_response({'success': False, 'error': 'Agent not available'})
+                    self._send_json_response({'success': False, 'error': 'Agent service not available'})
                     return
                 
                 # Run agent in background
@@ -108,68 +134,57 @@ class WebUIHandler(BaseHTTPRequestHandler):
                             {"messages": [{"role": "user", "content": question}]}
                         )
                         
-                        # Extract thinking and final response
-                        thinking_parts = []
-                        response_parts = []
+                        print(f"DEBUG: Agent response structure: {type(response)}")
+                        print(f"DEBUG: Agent response keys: {response.keys() if isinstance(response, dict) else 'Not a dict'}")
                         
-                        for i, message in enumerate(response["messages"]):
-                            if hasattr(message, 'content') and message.content:
-                                content = str(message.content)
+                        # Simple approach - just extract all content
+                        all_content = []
+                        thinking_content = []
+                        
+                        if isinstance(response, dict) and "messages" in response:
+                            for i, message in enumerate(response["messages"]):
+                                print(f"DEBUG: Message {i}: type={getattr(message, 'type', 'no type')}, content type={type(getattr(message, 'content', None))}")
                                 
-                                # Check message type to determine if it's thinking or final response
-                                if hasattr(message, 'type'):
-                                    if message.type == 'ai':
-                                        # AI messages could be either thinking or final response
-                                        # Check if this is the last AI message (likely final response)
-                                        is_last_ai = True
-                                        for j in range(i + 1, len(response["messages"])):
-                                            if hasattr(response["messages"][j], 'type') and response["messages"][j].type == 'ai':
-                                                is_last_ai = False
-                                                break
+                                if hasattr(message, 'content') and message.content:
+                                    content_str = str(message.content)
+                                    
+                                    # Add all non-empty content to all_content
+                                    if content_str.strip():
+                                        all_content.append(content_str.strip())
                                         
-                                        if is_last_ai:
-                                            # This is likely the final response
-                                            response_parts.append(content)
-                                        else:
-                                            # This is thinking/planning
-                                            thinking_parts.append(f"Agent: {content}")
-                                    
-                                    elif message.type == 'tool':
-                                        thinking_parts.append(f"Tool Response: {content}")
-                                    
-                                    else:
-                                        # Human or other messages
-                                        if i == 0:  # First message is usually the user question
-                                            thinking_parts.append(f"User: {content}")
-                                        else:
-                                            response_parts.append(content)
-                                else:
-                                    # If we can't determine type, try to parse the content
-                                    if isinstance(message.content, list):
-                                        # Handle structured content (like tool calls)
-                                        thinking_parts.append(f"Agent Planning: {content}")
-                                    else:
-                                        response_parts.append(content)
+                                        # Categorize for thinking vs response
+                                        msg_type = getattr(message, 'type', '')
+                                        if msg_type in ['tool', 'tool_use'] or 'tool' in content_str.lower():
+                                            thinking_content.append(f"Tool: {content_str}")
+                                        elif i == 0:  # First message is user
+                                            thinking_content.append(f"User: {content_str}")
+                                        elif i < len(response["messages"]) - 1:  # Not the last message
+                                            thinking_content.append(f"Agent: {content_str}")
                         
-                        # Clean up and format the results
-                        if thinking_parts:
-                            result['thinking'] = '\n\n'.join(thinking_parts)
+                        # Set thinking
+                        if thinking_content:
+                            result['thinking'] = '\n\n'.join(thinking_content)
                         else:
-                            result['thinking'] = "Agent processed the question directly"
+                            result['thinking'] = "Agent processed the request"
+                        
+                        # Set response - use the last non-empty content, or all content joined
+                        if all_content:
+                            # Try to find the final response (usually the last message that's not a tool)
+                            final_response = None
+                            for content in reversed(all_content):
+                                if not any(word in content.lower() for word in ['tool', 'function', 'action:', 'observation:']):
+                                    final_response = content
+                                    break
                             
-                        if response_parts:
-                            # Clean the final response - remove any remaining tool call syntax
-                            final_response = '\n'.join(response_parts).strip()
-                            # Remove any remaining structured content markers
-                            import re
-                            final_response = re.sub(r'\[{.*?}\]', '', final_response)
-                            final_response = re.sub(r'tooluse_\w+', '', final_response)
-                            result['response'] = final_response.strip() or "No specific response generated"
+                            result['response'] = final_response or all_content[-1] or "Response received but content was empty"
                         else:
-                            result['response'] = "No response generated"
+                            result['response'] = f"No content found in response. Response structure: {response}"
                         
                     except Exception as e:
                         result['error'] = str(e)
+                        print(f"DEBUG: Exception in run_agent: {e}")
+                        import traceback
+                        traceback.print_exc()
 
                 # Try to get existing event loop, create new one if needed
                 try:
