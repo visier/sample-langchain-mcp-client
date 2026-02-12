@@ -118,22 +118,22 @@
             tools.forEach((tool, index) => {
                 const toolId = `tool-${index}`;
                 html += `
-                    <div class="tool-item" style="width: 100%; display: block; border-bottom: 1px solid #F3F4F6;">
-                        <div class="tool-header" onclick="toggleTool('${toolId}')" style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0.75rem 1rem; cursor: pointer; background: #eaf8ff;">
-                            <span class="tool-name" style="flex: 1; font-size: 0.9rem;">${tool.name || 'Unnamed Tool'}</span>
-                            <span class="tool-expand-icon" id="${toolId}-icon" style="color: #008ad2;">▶</span>
+                    <div class="tool-item">
+                        <div class="tool-header" onclick="toggleTool('${toolId}')">
+                            <span class="tool-name">${tool.name || 'Unnamed Tool'}</span>
+                            <span class="tool-expand-icon" id="${toolId}-icon">▶</span>
                         </div>
                         <div class="tool-details" id="${toolId}-details">
-                            <div class="tool-details-content" style="margin: 1rem; padding: 1.5rem; background: #eaf8ff; border: 2px solid #008ad2; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 138, 210, 0.15);">
+                            <div class="tool-details-content">
                                 <div class="tool-description-section">
-                                    <div class="tool-description-title" style="font-weight: bold; margin-bottom: 0.5rem; color: #008ad2;">Description</div>
-                                    <div class="tool-description" style="background: white; padding: 1rem; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 1.5rem;">
+                                    <div class="tool-description-title">Description</div>
+                                    <div class="tool-description">
                                         ${tool.description || 'No description available'}
                                     </div>
                                 </div>
                                 <div class="tool-schema">
-                                    <div class="tool-schema-title" style="font-weight: bold; margin-bottom: 0.5rem; color: #008ad2;">Parameters Schema</div>
-                                    <div class="tool-schema-content" style="background: white; padding: 1rem; border: 1px solid #ccc; border-radius: 6px;"><pre style="font-family: 'Courier New', monospace; font-size: 14px; line-height: 1.2; margin: 0; white-space: pre-wrap; word-break: break-word; padding: 0; border: 0;">${formatSchemaForDisplay(tool.args_schema)}</pre></div>
+                                    <div class="tool-schema-title">Parameters Schema</div>
+                                    <div class="tool-schema-content"><pre>${formatSchemaForDisplay(tool.args_schema)}</pre></div>
                                 </div>
                             </div>
                         </div>
@@ -151,10 +151,10 @@
             if (details) {
                 if (details.classList.contains('expanded')) {
                     details.classList.remove('expanded');
-                    if (icon) icon.textContent = '▶';
+                    if (icon) icon.textContent = '\u25B6'; // Right-pointing triangle
                 } else {
                     details.classList.add('expanded');
-                    if (icon) icon.textContent = '▼';
+                    if (icon) icon.textContent = '\u25BC'; // Down-pointing triangle
                 }
             } else {
                 console.error('Could not find details element for:', toolId);
@@ -194,7 +194,6 @@
                 } else {
                     // It's already an object, just stringify it
                     const formatted = JSON.stringify(schema, null, 2);
-                    console.log('Formatted JSON:', formatted);
                     return formatted.trim();  // Remove extra whitespace
                 }
             } catch (error) {

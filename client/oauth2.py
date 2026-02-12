@@ -37,7 +37,7 @@ class OAuthPasswordGrantClientProvider(httpx.Auth):
         storage: TokenStorage,
         scope: str | None = None,
         timeout: float = 30.0,
-        token_endpoint_url: str = None
+        visier_tenant_vanity: str = None
     ):
         """Initialize OAuth2 password authentication.
 
@@ -50,7 +50,7 @@ class OAuthPasswordGrantClientProvider(httpx.Auth):
             storage: Token storage implementation.
             scope: Optional scope for the access token.
             timeout: Timeout for token requests.
-            token_endpoint_url: Optional custom token endpoint URL.
+            visier_tenant_vanity: Optional Visier tenant vanity for constructing token endpoint URL.
         """
         self.server_url = server_url
         self.username = username
@@ -62,12 +62,12 @@ class OAuthPasswordGrantClientProvider(httpx.Auth):
         self.timeout = timeout
         self._token: OAuthToken | None = None
         self._initialized = False
-        self.token_endpoint_url = token_endpoint_url
+        self.visier_tenant_vanity = visier_tenant_vanity
 
     async def _get_token_endpoint(self) -> str:
         """Get the token endpoint URL."""
-        if self.token_endpoint_url:
-            return self.token_endpoint_url
+        if self.visier_tenant_vanity:
+            return f"https://{self.visier_tenant_vanity}.localdev.local:8080/VServer/oauth2/token"
 
         if "/visier-query-mcp" in base_url:
             base_url = base_url.replace("/visier-query-mcp", "")
@@ -135,13 +135,7 @@ class OAuthPasswordGrantClientProvider(httpx.Auth):
 
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """Add OAuth2 Bearer token to the request."""
-        if not self._initialized:
-            # Try to load existing token from storage
-            stored_token = await self.storage.get_tokens()
-            if stored_token:
-                self._token = stored_token
-            self._initialized = True
-
+        await self.tokens() # Ensure token is loaded/initialized
         token = await self._refresh_token_if_needed()
         request.headers["Authorization"] = f"{token.token_type} {token.access_token}"
 

@@ -386,13 +386,30 @@ body {
 .tool-schema-title {
     font-weight: 600;
     color: var(--visier-dark-blue);
-    margin: 0;
+    margin: 0 0 0.5rem 0;
     font-size: 0.85rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     padding: 0.75rem 1rem;
     background: var(--visier-light-blue);
     border-bottom: 1px solid rgba(0, 138, 210, 0.2);
+}
+
+.tool-description-title {
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+    color: var(--visier-blue);
+}
+
+.tool-schema-content pre {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 14px;
+    line-height: 1.2;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 0;
+    border: 0;
 }
 
 .tool-schema-content {

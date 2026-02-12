@@ -3,6 +3,7 @@ import os
 import traceback
 import webbrowser
 import logging
+import json
 from threading import Thread
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
@@ -21,17 +22,14 @@ if (os.environ.get("VISIER_OAUTH_CLIENT_ID") is None or
     os.environ.get("VISIER_MCP_SERVER_URL") is None):
     raise ValueError("Please set VISIER_OAUTH_CLIENT_ID, VISIER_OAUTH_CLIENT_SECRET, and VISIER_MCP_SERVER_URL environment variables. See README for details.")
 
-USE_PASSWORD_GRANT = (os.environ.get("VISIER_USERNAME") is not None and
-                      os.environ.get("VISIER_PASSWORD") is not None)
-
 VISIER_OAUTH_CLIENT_ID = os.environ["VISIER_OAUTH_CLIENT_ID"]
 VISIER_OAUTH_CLIENT_SECRET = os.environ["VISIER_OAUTH_CLIENT_SECRET"]
 VISIER_MCP_SERVER_URL = os.environ["VISIER_MCP_SERVER_URL"]
 VISIER_USERNAME = os.environ.get("VISIER_USERNAME")
 VISIER_PASSWORD = os.environ.get("VISIER_PASSWORD")
-VISIER_TOKEN_ENDPOINT_URL = os.environ.get("VISIER_TOKEN_ENDPOINT_URL")
+VISIER_TENANT_VANITY = os.environ.get("VISIER_TENANT_VANITY")
 
-VERBOSE_LLM_LOGGING = os.environ.get("VERBOSE_LLM_LOGGING", "false").lower() == "false"
+USE_PASSWORD_GRANT = (VISIER_USERNAME is not None and VISIER_PASSWORD is not None)
 
 OAUTH_CLIENT_STATIC_METADATA = OAuthClientInformationFull(
     client_name="LangChain MCP client for Visier MCP server",
@@ -76,30 +74,13 @@ def get_tools():
             'description': getattr(tool, 'description', 'No description available'),
             'args': getattr(tool, 'args', {}),
             'args_schema': None
-        }
+        }   
         if hasattr(tool, 'args_schema') and tool.args_schema:
             try:
-                if hasattr(tool.args_schema, 'model_json_schema'):
-                    tool_info['args_schema'] = tool.args_schema.model_json_schema()
-                elif hasattr(tool.args_schema, 'schema'):
-                    tool_info['args_schema'] = tool.args_schema.schema
-                else:
-                    # Convert to dict if possible, otherwise stringify
-                    try:
-                        import json
-                        if hasattr(tool.args_schema, '__dict__'):
-                            tool_info['args_schema'] = json.loads(json.dumps(tool.args_schema.__dict__, default=str))
-                        else:
-                            tool_info['args_schema'] = json.loads(json.dumps(tool.args_schema, default=str))
-                    except:
-                        tool_info['args_schema'] = str(tool.args_schema)
-            except:
+                tool_info['args_schema'] = json.loads(json.dumps(tool.args_schema, default=str))
+            except Exception as e:
                 tool_info['args_schema'] = str(tool.args_schema)
-        elif hasattr(tool, 'get_params_definition'):
-            try:
-                tool_info['args_schema'] = tool.get_params_definition()
-            except:
-                tool_info['args_schema'] = "Schema unavailable"
+
         tools_details.append(tool_info)
 
     return tools_details
@@ -146,7 +127,6 @@ async def main():
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    os.environ["LANGCHAIN_VERBOSE"] = f"{VERBOSE_LLM_LOGGING}"
     
     if USE_PASSWORD_GRANT:
         print("Starting MCP client with OAuth Password Grant authentication...")
@@ -157,7 +137,7 @@ async def main():
             client_id=OAUTH_CLIENT_STATIC_METADATA.client_id,
             client_secret=OAUTH_CLIENT_STATIC_METADATA.client_secret,
             storage=InMemoryTokenStorage(),
-            token_endpoint_url=VISIER_TOKEN_ENDPOINT_URL
+            visier_tenant_vanity=VISIER_TENANT_VANITY
         )
     else:
         print("Starting MCP client with OAuth Authorization Code Grant authentication...")
@@ -188,11 +168,12 @@ async def main():
         available_tools.extend(mcp_tools)
         print(f"\n Authenticated! Tools: {[t.name for t in mcp_tools]}")
 
+        do_verbose_logging = os.environ.get("LANGCHAIN_VERBOSE", "False").lower() == "true"
         app_agent = create_agent(
             get_llm_provider(), 
             mcp_tools,
             system_prompt=SYSTEM_PROMPT,
-            debug=VERBOSE_LLM_LOGGING
+            debug=do_verbose_logging
         )
 
         ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools)

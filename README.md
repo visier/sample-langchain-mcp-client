@@ -5,11 +5,9 @@ This project provides a LangGraph MCP (Model Context Protocol) client for connec
 ## Features
 
 - **OAuth 2.0 Authentication**: Secure connection to your Visier tenant
-- **Flexible AI Backend**: AWS Bedrock (cloud) or Ollama (local) support
-- **Web Interface**: Clean, responsive web UI for easy interaction
+- **Flexible AI Backend**: See [LLM configuration section](#llm-setup-choose-one)
 - **Agent Transparency**: See both the agent's thinking process and final responses
 - **Visier Integration**: Direct access to your Visier analytics through MCP tools
-- **Real-time Responses**: Live interaction with streaming responses
 - **Free Option**: Works completely free with local Ollama models
 
 ## Architecture
@@ -30,7 +28,7 @@ sample-langgraph-mcp-client/
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.13+
 - Access to a Visier tenant with OAuth client credentials
 - Required Python packages (Install all with `uv sync`)
 
@@ -58,10 +56,9 @@ Before running the client, you must set the following environment variables:
 - **Description**: If both are provided, uses password grant instead of authorization code flow
 - **Use Case**: Automated/headless environments where browser OAuth isn't available
 
-#### `VISIER_TOKEN_ENDPOINT_URL`
-**Optional**: Custom token endpoint URL
-- **Description**: Override the default OAuth token endpoint if your tenant uses a custom URL
-- **Default**: Uses standard Visier OAuth token endpoint
+#### `VISIER_TENANT_VANITY`
+**Optional**: Your Visier tenant's vanity name
+- **Description**: This is only needed in certain development scenarios
 
 ### LLM Provider Configuration
 
@@ -106,13 +103,6 @@ Before running the client, you must set the following environment variables:
 **Required for OpenAI**: OpenAI API key
 - **Description**: Your OpenAI API key for GPT model access
 - **Note**: Required when using `LLM_PROVIDER=openai`
-
-### Development & Debugging Variables
-
-#### `VERBOSE_LLM_LOGGING`
-**Optional**: Enable detailed LLM logging
-- **Description**: Controls verbose logging of LLM interactions
-- **Default**: `false`
 
 ## Setup Instructions
 
@@ -188,15 +178,15 @@ export VISIER_PASSWORD="your-visier-password"
 ```
 
 #### Custom Token Endpoint
-If your Visier tenant uses a custom OAuth endpoint:
+If your Visier tenant is hosted locally:
 ```bash
-export VISIER_TOKEN_ENDPOINT_URL="https://custom-auth.yourcompany.com/oauth/token"
+export VISIER_TENANT_VANITY="a1b2c"
 ```
 
 #### Debug Logging
-Enable verbose LLM interaction logging:
+Enable verbose LLM interaction logging by setting the langchain variable:
 ```bash
-export VERBOSE_LLM_LOGGING="true"
+export LANGCHAIN_VERBOSE="true"
 ```
 
 ### Running the Application

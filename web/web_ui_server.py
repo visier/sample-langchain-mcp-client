@@ -167,16 +167,35 @@ class WebUIHandler(BaseHTTPRequestHandler):
                         else:
                             result['thinking'] = "Agent processed the request"
                         
-                        # Set response - use the last non-empty content, or all content joined
+                        # Set response - look for FINAL RESPONSE: marker first, then fallback to previous logic
                         if all_content:
-                            # Try to find the final response (usually the last message that's not a tool)
                             final_response = None
-                            for content in reversed(all_content):
-                                if not any(word in content.lower() for word in ['tool', 'function', 'action:', 'observation:']):
-                                    final_response = content
+                            
+                            # First, try to find content with "FINAL RESPONSE:" marker
+                            for content in all_content:
+                                if "FINAL RESPONSE:" in content:
+                                    # Extract everything after "FINAL RESPONSE:"
+                                    final_response = content.split("FINAL RESPONSE:", 1)[1].strip()
                                     break
                             
-                            result['response'] = final_response or all_content[-1] or "Response received but content was empty"
+                            # Fallback: Try to find the final response (usually the last message that's not a tool)
+                            if not final_response:
+                                for content in reversed(all_content):
+                                    if not any(word in content.lower() for word in ['tool', 'function', 'action:', 'observation:']):
+                                        final_response = content
+                                        break
+                            
+                            # Additional fallback - if still no response, use the last content item
+                            if not final_response and all_content:
+                                final_response = all_content[-1]
+                            
+                            result['response'] = final_response or "Response received but content was empty"
+                            
+                            # Debug logging
+                            print(f"DEBUG: Final response found: {bool(final_response)}")
+                            print(f"DEBUG: All content count: {len(all_content)}")
+                            if final_response:
+                                print(f"DEBUG: Final response preview: {final_response[:100]}...")
                         else:
                             result['response'] = f"No content found in response. Response structure: {response}"
                         
