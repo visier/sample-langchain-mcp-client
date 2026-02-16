@@ -2,20 +2,12 @@
 
 This project provides a LangGraph MCP (Model Context Protocol) client for connecting to a Visier MCP server using OAuth 2.0 authorization code flow. It features a web UI that lets you interact with an AI agent to query your Visier data.
 
-**LLM Options:**
--  **AWS Bedrock (Claude Sonnet)** - Premium cloud AI (requires AWS credentials)
--  **Ollama (Local)** - With qwen2.5 installed
-
-**⚠️ Important**: If you don't have AWS Bedrock credentials, the system will automatically use Ollama with the `qwen2.5` model. You must install Ollama and download this specific model before running the application.
-
 ## Features
 
 - **OAuth 2.0 Authentication**: Secure connection to your Visier tenant
-- **Flexible AI Backend**: AWS Bedrock (cloud) or Ollama (local) support
-- **Web Interface**: Clean, responsive web UI for easy interaction
+- **Flexible AI Backend**: See [LLM configuration section](#llm-setup-choose-one)
 - **Agent Transparency**: See both the agent's thinking process and final responses
 - **Visier Integration**: Direct access to your Visier analytics through MCP tools
-- **Real-time Responses**: Live interaction with streaming responses
 - **Free Option**: Works completely free with local Ollama models
 
 ## Architecture
@@ -36,13 +28,9 @@ sample-langgraph-mcp-client/
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.13+
 - Access to a Visier tenant with OAuth client credentials
-- **LLM Choice** (one of the following):
-  - **Option A**: AWS account with Bedrock access (premium, cloud-based)
-  - **Option B**: Ollama installed locally with `qwen2.5` model (free, runs on your machine)
-- Required Python packages (Install all with `uv sync`):
-  - `langgraph`, `langchain-mcp-adapters`, `langchain`, `langchain-aws`, `langchain-ollama`
+- Required Python packages (Install all with `uv sync`)
 
 ## Required Environment Variables
 
@@ -50,52 +38,71 @@ Before running the client, you must set the following environment variables:
 
 ### Visier MCP Server Variables
 
-### `VISIER_OAUTH_CLIENT_ID`
+#### `VISIER_OAUTH_CLIENT_ID`
 **Required**: Your Visier OAuth Client ID
-
 - **Description**: The OAuth Client ID registered in your Visier tenant's settings
 
-### `VISIER_OAUTH_CLIENT_SECRET`
+#### `VISIER_OAUTH_CLIENT_SECRET`
 **Required**: Your Visier OAuth Client Secret
-
 - **Description**: The OAuth Client Secret registered in your Visier tenant's settings
-### `VISIER_MCP_SERVER_URL`
-**Required**: The URL of your Visier MCP server
 
+#### `VISIER_MCP_SERVER_URL`
+**Required**: The URL of your Visier MCP server
 - **Description**: The base URL for your Visier tenant's MCP server endpoint
 - **Format**: `https://{vanity_name}.app.visier.com/visier-query-mcp`
 
-### AWS Bedrock Variables (For premium cloud AI)
+#### `VISIER_USERNAME` & `VISIER_PASSWORD`
+**Optional**: For password grant authentication flow
+- **Description**: If both are provided, uses password grant instead of authorization code flow
+- **Use Case**: Automated/headless environments where browser OAuth isn't available
 
-If you want to use AWS Bedrock (Claude Sonnet), set these variables. If not provided, the system will automatically use Ollama instead.
+#### `VISIER_TENANT_VANITY`
+**Optional**: Your Visier tenant's vanity name
+- **Description**: This is only needed in certain development scenarios
 
-### `AWS_ACCESS_KEY_ID`
-**Optional**: Your AWS Access Key ID
+### LLM Provider Configuration
 
-- **Description**: AWS credentials for accessing Bedrock services
-- **Example**: `AKIAIOSFODNN7EXAMPLE`
+#### `LLM_PROVIDER`
+**Optional**: Choose your AI provider
+- **Description**: Specifies which AI service to use
+- **Options**: `ollama`, `anthropic`, `bedrock`, `openai`
+- **Default**: `ollama`
+- **Example**: `export LLM_PROVIDER="bedrock"`
 
-### `AWS_SECRET_ACCESS_KEY`
-**Optional**: Your AWS Secret Access Key
+#### `LLM_MODEL_ID`
+**Optional**: Specific model to use
+- **Description**: Override the default model for your chosen provider
+- **Examples**:
+  - Ollama: `qwen2.5`, `llama3.1`, `mistral`
+  - Anthropic: `claude-3-5-sonnet-20241022`
+  - Bedrock: `anthropic.claude-3-5-sonnet-20241022-v2:0`
+  - OpenAI: `gpt-5.3-codex`, `gpt-4-turbo`
 
-- **Description**: AWS secret key corresponding to your Access Key ID
-- **Example**: `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`
+### AWS Bedrock Variables
 
-### `AWS_SESSION_TOKEN`
-**Optional**: AWS session token for temporary credentials
+#### `AWS_BEARER_TOKEN_BEDROCK`
+**Required for Bedrock**: AWS Bearer Token for Bedrock access
+- **Description**: Bearer token for AWS Bedrock authentication
+- **Note**: Required when using `LLM_PROVIDER=bedrock`
 
-- **Description**: AWS session token (required when using temporary credentials)
-- **Example**: `IQoJb3JpZ2luX2VjE...`
+#### `AWS_REGION_BEDROCK`
+**Optional**: AWS region for Bedrock
+- **Description**: AWS region where your Bedrock models are available
+- **Default**: `us-west-2`
 
-### Ollama Variables (For free local AI)
+### Anthropic Variables
 
-### `OLLAMA_MODEL` (Optional)
-**Optional**: Ollama model to use
+#### `ANTHROPIC_API_KEY`
+**Required for Anthropic**: Anthropic API key
+- **Description**: Your Anthropic API key for direct Claude access
+- **Note**: Required when using `LLM_PROVIDER=anthropic`
 
-- **Description**: The Ollama model name (must be pulled first with `ollama pull <model>`)
-- **Type**: String
-- **Default**: `qwen2.5`
-- **Example**: `export OLLAMA_MODEL=mistral`
+### OpenAI Variables
+
+#### `OPENAI_API_KEY`
+**Required for OpenAI**: OpenAI API key
+- **Description**: Your OpenAI API key for GPT model access
+- **Note**: Required when using `LLM_PROVIDER=openai`
 
 ## Setup Instructions
 
@@ -108,7 +115,7 @@ If you want to use AWS Bedrock (Claude Sonnet), set these variables. If not prov
    export VISIER_MCP_SERVER_URL="https://{vanity_name}.app.visier.com/visier-query-mcp"
    ```
 
-2. **Install Dependencies and switch to virtual enviroment**:
+2. **Install Dependencies and switch to virtual environment**:
    ```bash
    uv sync
    source .venv/bin/activate
@@ -116,14 +123,7 @@ If you want to use AWS Bedrock (Claude Sonnet), set these variables. If not prov
 
 ### LLM Setup (Choose One)
 
-#### Option A: AWS Bedrock (Premium)
-```bash
-export AWS_ACCESS_KEY_ID="your-aws-access-key-id"
-export AWS_SECRET_ACCESS_KEY="your-aws-secret-access-key"
-export AWS_SESSION_TOKEN="your-aws-session-token"
-```
-
-#### Option B: Ollama (Free) - **DEFAULT if no AWS credentials**
+#### Option A: Ollama (Free, Local) - **DEFAULT**
 ```bash
 # 1. Install Ollama from https://ollama.ai
 #    Download and install the application for your OS
@@ -131,15 +131,63 @@ export AWS_SESSION_TOKEN="your-aws-session-token"
 # 2. Pull qwen2.5 model (required!)
 ollama pull qwen2.5
 
-# 3. Optional: Use a different model (better tool calling options)
-ollama pull qwen3              # Best for tool calling (larger)
-export OLLAMA_MODEL="qwen3"     # Use the alternative model
+# 3. Optional: Use a different model
+ollama pull llama3.1            # Alternative model
+export LLM_MODEL_ID="llama3.1"   # Use specific model
 
 # 4. Start Ollama service (if not running automatically)
 ollama serve
 ```
 
-**⚠️ Required**: You MUST run `ollama pull qwen2.5` before starting the application, otherwise you'll get a "model not found" error.
+#### Option B: AWS Bedrock (Premium Cloud)
+```bash
+export LLM_PROVIDER="bedrock"
+export AWS_BEARER_TOKEN_BEDROCK="your-bearer-token"
+export AWS_REGION_BEDROCK="us-west-2"  # Optional, defaults to us-west-2
+
+# Optional: Use specific Bedrock model
+export LLM_MODEL_ID="anthropic.claude-3-5-sonnet-20241022-v2:0"
+```
+
+#### Option C: Anthropic Direct (Premium Cloud)
+```bash
+export LLM_PROVIDER="anthropic"
+export ANTHROPIC_API_KEY="sk-ant-your-api-key"
+
+# Optional: Use specific Claude model
+export LLM_MODEL_ID="claude-3-5-sonnet-20241022"
+```
+
+#### Option D: OpenAI (Premium Cloud)
+```bash
+export LLM_PROVIDER="openai"
+export OPENAI_API_KEY="sk-your-openai-api-key"
+
+# Optional: Use specific OpenAI model
+export LLM_MODEL_ID="gpt-5.3-codex"
+```
+
+### Advanced Configuration
+
+#### Password Grant Authentication (Headless)
+For automated environments without browser access:
+```bash
+export VISIER_USERNAME="your-visier-username"
+export VISIER_PASSWORD="your-visier-password"
+# This will use password grant instead of authorization code flow
+```
+
+#### Custom Token Endpoint
+If your Visier tenant is hosted locally:
+```bash
+export VISIER_TENANT_VANITY="a1b2c"
+```
+
+#### Debug Logging
+Enable verbose LLM interaction logging by setting the langchain variable:
+```bash
+export LANGCHAIN_VERBOSE="true"
+```
 
 ### Running the Application
 
