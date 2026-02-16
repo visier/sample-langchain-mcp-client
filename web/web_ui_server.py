@@ -69,7 +69,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(response_data).encode('utf-8'))
         
-        elif path == '/assets/logo.png' or path == '/styles.css':
+        elif path == '/assets/logo.png' or path == '/styles.css' or path == '/app.js':
             import os
             script_dir = os.path.dirname(os.path.abspath(__file__))
             
@@ -79,6 +79,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
             elif path == '/styles.css':
                 asset_path = os.path.join(script_dir, 'styles.css')
                 content_type = 'text/css'
+            elif path == '/app.js':
+                asset_path = os.path.join(script_dir, 'app.js')
+                content_type = 'application/javascript'
             
             try:
                 with open(asset_path, 'rb') as f:

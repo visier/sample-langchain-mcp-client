@@ -166,7 +166,7 @@ async def main():
     try:
         mcp_tools = await client.get_tools()
         available_tools.extend(mcp_tools)
-        print(f"\n Authenticated! Tools: {[t.name for t in mcp_tools]}")
+        print(f"\n Authenticated. Available MCP Tools: {[t.name for t in mcp_tools]}")
 
         do_verbose_logging = os.environ.get("LANGCHAIN_VERBOSE", "False").lower() == "true"
         app_agent = create_agent(

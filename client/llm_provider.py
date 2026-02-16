@@ -50,7 +50,7 @@ def get_llm_provider() -> BaseChatModel:
     if LLM_PROVIDER == "openai":
         if not HAS_OPENAI:
             raise ValueError("Selected OpenAI as provider but OPENAI_API_KEY environment variable is not set.")
-        current_model_name = LLM_MODEL_ID or "gpt-4o"
+        current_model_name = LLM_MODEL_ID or "gpt-5.3-codex"
         print(f"Creating OpenAI chat agent with model {current_model_name}")
         return ChatOpenAI(
             model=current_model_name,

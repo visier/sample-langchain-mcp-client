@@ -76,7 +76,7 @@ Before running the client, you must set the following environment variables:
   - Ollama: `qwen2.5`, `llama3.1`, `mistral`
   - Anthropic: `claude-3-5-sonnet-20241022`
   - Bedrock: `anthropic.claude-3-5-sonnet-20241022-v2:0`
-  - OpenAI: `gpt-4o`, `gpt-4-turbo`
+  - OpenAI: `gpt-5.3-codex`, `gpt-4-turbo`
 
 ### AWS Bedrock Variables
 
@@ -164,7 +164,7 @@ export LLM_PROVIDER="openai"
 export OPENAI_API_KEY="sk-your-openai-api-key"
 
 # Optional: Use specific OpenAI model
-export LLM_MODEL_ID="gpt-4o"
+export LLM_MODEL_ID="gpt-5.3-codex"
 ```
 
 ### Advanced Configuration

@@ -69,8 +69,7 @@ class OAuthPasswordGrantClientProvider(httpx.Auth):
         if self.visier_tenant_vanity:
             return f"https://{self.visier_tenant_vanity}.localdev.local:8080/VServer/oauth2/token"
 
-        if "/visier-query-mcp" in base_url:
-            base_url = base_url.replace("/visier-query-mcp", "")
+        base_url = self.server_url.replace("/visier-query-mcp", "")
         return urljoin(base_url + "/", "hr/oauth2/token") # i.e. https://{vanity_name}.app.visier.com/hr/oauth2/token
 
     async def _exchange_password_for_token(self) -> OAuthToken:
