@@ -2,6 +2,18 @@
 
 This project provides a LangGraph MCP (Model Context Protocol) client for connecting to a Visier MCP server using OAuth 2.0 authorization code flow. It features a web UI that lets you interact with an AI agent to query your Visier data.
 
+
+## Screenshots
+
+![Overview](docs/images/initial_stage.png)
+*The main interface shows server connection details, available MCP tools, and a simple agent chat interface.*
+
+![View MCP tool details](docs/images/view_tool_details.png)
+*Click to expand any tool and view its description and parameter schema, this is exactly what the agent sees when making decisions.*
+
+![Ask question and get results](docs/images/ask_question_result.png)
+*Ask a question and see the agent's reasoning and response.*
+
 ## Features
 
 - **OAuth 2.0 Authentication**: Secure connection to your Visier tenant
