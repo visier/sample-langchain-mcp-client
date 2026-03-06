@@ -128,11 +128,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     messages = await WebUIHandler.get_prompt_messages_async(prompt_name, prompt_arguments)
                     parts = []
                     for m in messages:
-                        role = m.get('role', 'user')
                         content = (m.get('content') or '').strip()
                         if content:
-                            label = 'Assistant' if role == 'assistant' else 'User'
-                            parts.append(f'{label}: {content}')
+                            parts.append(content)
                     return '\n\n'.join(parts) if parts else ''
 
                 try:
