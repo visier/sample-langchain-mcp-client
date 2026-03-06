@@ -138,8 +138,90 @@ body {
     padding: 2rem;
 }
 
+.input-section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--visier-dark-blue);
+    margin: 0 0 0.5rem 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.input-section-desc {
+    font-size: 0.9rem;
+    color: var(--visier-grey);
+    margin: 0 0 1rem 0;
+    line-height: 1.5;
+}
+
+.prompt-load-section {
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--visier-light-grey);
+}
+
 .form-group {
     margin-bottom: 1.5rem;
+}
+
+.form-row-prompt {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: flex-end;
+}
+
+.form-group-inline {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.question-input-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-end;
+}
+
+.question-input-row .form-input {
+    flex: 1;
+    margin: 0;
+}
+
+.question-input-row .question-textarea {
+    min-height: 80px;
+    resize: vertical;
+    font-family: inherit;
+    line-height: 1.5;
+}
+
+.question-input-row .btn-ask {
+    margin: 0;
+    flex-shrink: 0;
+    padding: 0.75rem 1.25rem;
+}
+
+.form-select {
+    padding: 0.75rem 1rem;
+    border: 2px solid var(--visier-light-grey);
+    border-radius: 6px;
+    font-size: 1rem;
+    background: var(--visier-white);
+    color: var(--visier-black);
+    min-width: 180px;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.form-select:hover {
+    border-color: var(--visier-blue);
+}
+
+.form-select:focus {
+    outline: none;
+    border-color: var(--visier-blue);
+    box-shadow: 0 0 0 3px rgba(0, 138, 210, 0.1);
 }
 
 .form-label {
@@ -150,6 +232,35 @@ body {
     font-size: 0.9rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+.prompt-params-section {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--visier-light-grey);
+}
+
+.prompt-params-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.prompt-param-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.prompt-param-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--visier-dark-grey);
+}
+
+.prompt-param-input {
+    max-width: 400px;
 }
 
 .form-input {
@@ -194,6 +305,14 @@ body {
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
+}
+
+.btn-secondary {
+    background: linear-gradient(135deg, var(--visier-grey) 0%, var(--visier-dark-grey) 100%);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    box-shadow: 0 4px 15px rgba(55, 65, 81, 0.3);
 }
 
 .response-section {
@@ -285,11 +404,6 @@ body {
 }
 
 /* Tools Section Styling */
-.tools-section {
-    grid-column: 1 / -1 !important; /* Span full width */
-    width: 100% !important;
-}
-
 .tools-container {
     background: var(--visier-white);
     border: 1px solid rgba(0, 138, 210, 0.2);
@@ -425,6 +539,144 @@ body {
     line-height: 1.4;
 }
 
+/* Prompts Section Styling */
+.prompts-container {
+    background: var(--visier-white);
+    border: 1px solid rgba(0, 138, 210, 0.2);
+    border-radius: 6px;
+    overflow-y: auto;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.prompt-item {
+    border-bottom: 1px solid var(--visier-light-grey);
+    transition: background-color 0.2s ease;
+    width: 100%;
+    display: block;
+    flex-shrink: 0;
+}
+
+.prompt-item:last-child {
+    border-bottom: none;
+}
+
+.prompt-header {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--visier-lightest-blue);
+    transition: background-color 0.2s ease;
+}
+
+.prompt-header:hover {
+    background: var(--visier-light-blue);
+}
+
+.prompt-name {
+    font-weight: 600;
+    color: var(--visier-dark-blue);
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.prompt-expand-icon {
+    color: var(--visier-blue);
+    transition: color 0.2s ease;
+    font-size: 0.8rem;
+    user-select: none;
+}
+
+.prompt-details {
+    padding: 0;
+    background: var(--visier-white);
+    border-top: 1px solid var(--visier-light-grey);
+    display: none;
+}
+
+.prompt-details.expanded {
+    display: block !important;
+}
+
+.prompt-details-content {
+    margin: 1rem;
+    padding: 1rem;
+    background: var(--visier-lightest-blue);
+    border: 2px solid rgba(0, 138, 210, 0.3);
+    border-radius: 8px;
+    font-size: 0.9rem;
+}
+
+.prompt-description {
+    color: var(--visier-black);
+    line-height: 1.6;
+    padding: 0.75rem;
+    background: var(--visier-white);
+    border-radius: 6px;
+    border: 1px solid var(--visier-light-grey);
+    margin-bottom: 1rem;
+}
+
+.prompt-schema {
+    background: var(--visier-white);
+    border: 1px solid var(--visier-light-grey);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 0.5rem;
+}
+
+.prompt-schema-title {
+    font-weight: 600;
+    color: var(--visier-dark-blue);
+    margin: 0;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0.75rem 1rem;
+    background: var(--visier-light-blue);
+    border-bottom: 1px solid rgba(0, 138, 210, 0.2);
+}
+
+.prompt-schema-content {
+    padding: 1rem;
+    font-size: 0.9rem;
+    color: var(--visier-black);
+}
+
+.prompt-args-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.prompt-args-table th,
+.prompt-args-table td {
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--visier-light-grey);
+}
+
+.prompt-args-table th {
+    font-weight: 600;
+    color: var(--visier-dark-blue);
+    background: var(--visier-lightest-blue);
+}
+
+.prompt-args-table tr:last-child td {
+    border-bottom: none;
+}
+
+.prompt-arg-name {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-weight: 600;
+}
+
+.prompt-arg-required {
+    white-space: nowrap;
+}
+
 @keyframes spin {
     to { transform: rotate(360deg); }
 }
@@ -449,5 +701,14 @@ body {
     
     .server-info, .input-section {
         padding: 1.5rem;
+    }
+    
+    .form-row-prompt {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .form-group-inline .form-select {
+        min-width: 0;
     }
 }

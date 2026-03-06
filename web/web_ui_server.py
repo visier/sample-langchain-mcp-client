@@ -53,19 +53,23 @@ class WebUIHandler(BaseHTTPRequestHandler):
             server_url = "Server URL not available"
             model_name = "Model not available"
             tools_list = []
-            
+            prompts_list = []
+
             if hasattr(WebUIHandler, 'get_server_url'):
                 server_url = WebUIHandler.get_server_url()
             if hasattr(WebUIHandler, 'get_model_name'):
                 model_name = WebUIHandler.get_model_name()
             if hasattr(WebUIHandler, 'get_tools'):
                 tools_list = WebUIHandler.get_tools()
-            
+            if hasattr(WebUIHandler, 'get_prompts'):
+                prompts_list = WebUIHandler.get_prompts()
+
             response_data = {
                 'success': True,
                 'serverUrl': server_url,
                 'modelName': model_name,
-                'tools': tools_list
+                'tools': tools_list,
+                'prompts': prompts_list
             }
             self.wfile.write(json.dumps(response_data).encode('utf-8'))
         
@@ -106,6 +110,44 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"Not found")
     
     def do_POST(self):
+        if self.path == '/get-prompt-content':
+            try:
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+                prompt_name = data.get('prompt') or None
+                prompt_arguments = data.get('promptArguments') or {}
+                if not prompt_name:
+                    self._send_json_response({'success': False, 'error': 'No prompt selected.'})
+                    return
+                if not hasattr(WebUIHandler, 'get_prompt_messages_async') or not callable(getattr(WebUIHandler, 'get_prompt_messages_async', None)):
+                    self._send_json_response({'success': False, 'error': 'Prompt service not available.'})
+                    return
+
+                async def fetch_prompt():
+                    messages = await WebUIHandler.get_prompt_messages_async(prompt_name, prompt_arguments)
+                    parts = []
+                    for m in messages:
+                        role = m.get('role', 'user')
+                        content = (m.get('content') or '').strip()
+                        if content:
+                            label = 'Assistant' if role == 'assistant' else 'User'
+                            parts.append(f'{label}: {content}')
+                    return '\n\n'.join(parts) if parts else ''
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_closed():
+                        raise RuntimeError("Event loop is closed")
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                prompt_content = loop.run_until_complete(fetch_prompt())
+                self._send_json_response({'success': True, 'promptContent': prompt_content})
+            except Exception as e:
+                self._send_json_response({'success': False, 'error': str(e)})
+            return
+
         if self.path == '/ask':
             try:
                 # Read request body
@@ -113,11 +155,11 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 post_data = self.rfile.read(content_length)
                 data = json.loads(post_data.decode('utf-8'))
                 
-                question = data.get('question', '')
+                question = (data.get('question') or '').strip()
                 if not question:
-                    self._send_json_response({'success': False, 'error': 'No question provided'})
+                    self._send_json_response({'success': False, 'error': 'No question provided.'})
                     return
-                
+
                 # Get the global agent
                 if hasattr(WebUIHandler, 'get_agent'):
                     agent = WebUIHandler.get_agent()
@@ -130,12 +172,11 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 
                 # Run agent in background
                 result = {'response': None, 'thinking': None, 'error': None}
-                
+
                 async def run_agent():
                     try:
-                        response = await agent.ainvoke(
-                            {"messages": [{"role": "user", "content": question}]}
-                        )
+                        messages = [{"role": "user", "content": question}]
+                        response = await agent.ainvoke({"messages": messages})
                         
                         print(f"DEBUG: Agent response structure: {type(response)}")
                         print(f"DEBUG: Agent response keys: {response.keys() if isinstance(response, dict) else 'Not a dict'}")
@@ -224,7 +265,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     self._send_json_response({'success': False, 'error': result['error']})
                 else:
                     self._send_json_response({
-                        'success': True, 
+                        'success': True,
                         'thinking': result['thinking'],
                         'response': result['response']
                     })
@@ -252,8 +293,17 @@ class WebUIServer:
         self.oauth_port = oauth_port
         self.ui_port = ui_port
         
-    def set_callbacks(self, callback_handler, get_agent_func, get_server_url_func=None, get_model_name_func=None, get_tools_func=None):
-        """Set the callback functions for OAuth, agent access, server URL, model name, and tools"""
+    def set_callbacks(
+        self,
+        callback_handler,
+        get_agent_func,
+        get_server_url_func=None,
+        get_model_name_func=None,
+        get_tools_func=None,
+        get_prompts_func=None,
+        get_prompt_messages_async=None,
+    ):
+        """Set the callback functions for OAuth, agent access, server URL, model name, tools, and prompt resolution."""
         WebUIHandler.callback_handler = callback_handler
         WebUIHandler.get_agent = get_agent_func
         if get_server_url_func:
@@ -262,7 +312,11 @@ class WebUIServer:
             WebUIHandler.get_model_name = get_model_name_func
         if get_tools_func:
             WebUIHandler.get_tools = get_tools_func
-        
+        if get_prompts_func:
+            WebUIHandler.get_prompts = get_prompts_func
+        if get_prompt_messages_async is not None:
+            WebUIHandler.get_prompt_messages_async = get_prompt_messages_async
+
     def start_oauth_server(self):
         """Start the OAuth callback server"""
         server = HTTPServer(('localhost', self.oauth_port), WebUIHandler)
