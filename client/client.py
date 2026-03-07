@@ -4,6 +4,7 @@ import traceback
 import webbrowser
 import logging
 import json
+from functools import partial
 from threading import Thread
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
@@ -46,7 +47,6 @@ OAUTH_CLIENT_STATIC_METADATA = OAuthClientInformationFull(
 captured_code = None
 captured_state = None
 app_agent = None
-mcp_client = None  # Set in main() for prompt resolution
 available_tools = []
 available_prompts = []
 ui_server = WebUIServer()
@@ -111,12 +111,16 @@ def get_prompts():
     return prompts_details
 
 
-async def get_prompt_messages_async(prompt_name: str, arguments: dict[str, str] | None = None) -> list[dict]:
+async def get_prompt_messages_async(
+    client: MultiServerMCPClient,
+    prompt_name: str,
+    arguments: dict[str, str] | None = None,
+) -> list[dict]:
     """Load prompt content from MCP server and return list of {role, content} for the agent."""
-    if not mcp_client or not prompt_name:
+    if not client or not prompt_name:
         return []
     arguments = arguments or {}
-    messages = await mcp_client.get_prompt("visier-service", prompt_name, arguments=arguments)
+    messages = await client.get_prompt("visier-service", prompt_name, arguments=arguments)
     result = []
     for m in messages:
         role = "user" if isinstance(m, HumanMessage) else "assistant"
@@ -220,8 +224,6 @@ async def main():
             "auth": oauth_provider
         }
     })
-    global mcp_client
-    mcp_client = client
 
     try:
         mcp_tools = await client.get_tools()
@@ -243,7 +245,7 @@ async def main():
 
         ui_server.set_callbacks(
             set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts,
-            get_prompt_messages_async=get_prompt_messages_async
+            get_prompt_messages_async=partial(get_prompt_messages_async, client)
         )
 
         # Start the web UI after successful authentication
