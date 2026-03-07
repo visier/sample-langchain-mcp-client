@@ -88,6 +88,7 @@ function formatPromptArgumentsForDisplay(argumentsList) {
     `;
 }
 
+/** Fill the "Use prompt" dropdown with options from the server prompts list. */
 function populatePromptSelect(prompts) {
     const select = document.getElementById('promptSelect');
     if (!select) return;
@@ -104,6 +105,7 @@ function populatePromptSelect(prompts) {
     onPromptSelectChange();
 }
 
+/** Show or hide prompt parameter inputs when the selected prompt changes. */
 function onPromptSelectChange() {
     const select = document.getElementById('promptSelect');
     const paramsSection = document.getElementById('promptParamsSection');
@@ -145,6 +147,7 @@ function onPromptSelectChange() {
     });
 }
 
+/** Read current prompt parameter values from the form. Returns { paramName: value } or {}. */
 function getPromptArgumentsFromInputs() {
     const promptName = document.getElementById('promptSelect').value;
     if (!promptName) return null;
@@ -159,6 +162,7 @@ function getPromptArgumentsFromInputs() {
     return out;
 }
 
+/** Return true if the selected prompt has no required params or all required params have a value. */
 function areRequiredPromptParamsFilled() {
     const promptName = document.getElementById('promptSelect').value;
     if (!promptName) return true;
@@ -170,12 +174,14 @@ function areRequiredPromptParamsFilled() {
     });
 }
 
+/** Enable or disable the Send question button based on question content and processing state. */
 function updateAskButtonState() {
     const question = (document.getElementById('questionInput').value || '').trim();
     const btn = document.getElementById('askButton');
     if (btn) btn.disabled = isProcessing || question === '';
 }
 
+/** Fetch the selected prompt (with params) from the server and put its content into the question box. */
 async function loadPromptIntoQuestion() {
     const promptName = document.getElementById('promptSelect').value || '';
     if (!promptName) {
@@ -355,43 +361,117 @@ async function askAgent() {
     document.getElementById('responseArea').value = '';
 
     try {
+        // POST question to /ask and get response (streaming or JSON)
         const response = await fetch('/ask', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ question: question })
         });
 
-        const data = await response.json();
+        if (!response.ok || !response.body) {
+            const err = await response.text();
+            throw new Error(err || 'Request failed');
+        }
 
-        if (data.success) {
-            // Display thinking process if available
-            if (data.thinking) {
-                document.getElementById('thinkingArea').value = data.thinking;
-                document.getElementById('thinkingStatus').textContent = 'Reasoning complete';
-            } else {
-                document.getElementById('thinkingArea').value = 'Agent reasoning not captured for this request.';
-                document.getElementById('thinkingStatus').textContent = 'Reasoning not available';
+        const contentType = response.headers.get('Content-Type') || '';
+        if (contentType.includes('text/event-stream')) {
+            // --- Streaming path: read SSE and update UI as chunks arrive ---
+            const thinkingEl = document.getElementById('thinkingArea');
+            const thinkingStatusEl = document.getElementById('thinkingStatus');
+            const responseAreaEl = document.getElementById('responseArea');
+            const responseStatusEl = document.getElementById('responseStatus');
+            let thinkingParts = [];
+            const decoder = new TextDecoderStream();
+            const reader = response.body.pipeThrough(decoder).getReader();
+            let buffer = '';
+            try {
+                // Read stream until done
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += value || '';
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop() || '';
+                    for (const chunk of lines) {
+                        const match = chunk.match(/^data:\s*(.+)$/m);
+                        if (!match) continue;
+                        try {
+                            const data = JSON.parse(match[1].trim());
+                            if (data.type === 'thinking' && data.content) {
+                                // Append reasoning step and scroll into view
+                                thinkingParts.push(data.content);
+                                thinkingEl.value = thinkingParts.join('\n\n');
+                                thinkingStatusEl.textContent = 'Reasoning in progress...';
+                                thinkingEl.scrollTop = thinkingEl.scrollHeight;
+                            } else if (data.type === 'done') {
+                                // Final event: set thinking, response, and stop spinner
+                                if (data.thinking) thinkingEl.value = data.thinking;
+                                thinkingStatusEl.textContent = data.success ? 'Reasoning complete' : 'Error occurred';
+                                responseAreaEl.value = data.success ? (data.response || '') : ('Error: ' + (data.error || 'Unknown error'));
+                                responseStatusEl.textContent = data.success ? 'Response ready' : 'Request failed';
+                                isProcessing = false;
+                                document.getElementById('spinner').style.display = 'none';
+                                document.getElementById('loadingText').style.display = 'none';
+                                updateAskButtonState();
+                            }
+                        } catch (e) {
+                            console.warn('SSE parse:', e);
+                        }
+                    }
+                }
+                // Handle any final event left in the buffer
+                if (buffer) {
+                    const match = buffer.match(/^data:\s*(.+)$/m);
+                    if (match) {
+                        try {
+                            const data = JSON.parse(match[1].trim());
+                            if (data.type === 'done') {
+                                if (data.thinking) thinkingEl.value = data.thinking;
+                                thinkingStatusEl.textContent = data.success ? 'Reasoning complete' : 'Error occurred';
+                                responseAreaEl.value = data.success ? (data.response || '') : ('Error: ' + (data.error || ''));
+                                responseStatusEl.textContent = data.success ? 'Response ready' : 'Request failed';
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+                }
+            } finally {
+                // Always stop spinner when stream ends (or errors) so next request can run
+                isProcessing = false;
+                document.getElementById('spinner').style.display = 'none';
+                document.getElementById('loadingText').style.display = 'none';
+                updateAskButtonState();
             }
-
-            // Display final response
-            document.getElementById('responseArea').value = data.response;
-            document.getElementById('responseStatus').textContent = 'Response ready';
         } else {
-            document.getElementById('thinkingArea').value = '';
-            document.getElementById('responseArea').value = 'Error: ' + (data.error || 'Unknown error occurred');
-            document.getElementById('thinkingStatus').textContent = 'Error occurred';
-            document.getElementById('responseStatus').textContent = 'Request failed';
+            // --- Non-streaming path: single JSON response ---
+            const data = await response.json();
+            if (data.success) {
+                if (data.thinking) {
+                    document.getElementById('thinkingArea').value = data.thinking;
+                    document.getElementById('thinkingStatus').textContent = 'Reasoning complete';
+                } else {
+                    document.getElementById('thinkingArea').value = 'Agent reasoning not captured for this request.';
+                    document.getElementById('thinkingStatus').textContent = 'Reasoning not available';
+                }
+                document.getElementById('responseArea').value = data.response;
+                document.getElementById('responseStatus').textContent = 'Response ready';
+            } else {
+                document.getElementById('thinkingArea').value = '';
+                document.getElementById('responseArea').value = 'Error: ' + (data.error || 'Unknown error occurred');
+                document.getElementById('thinkingStatus').textContent = 'Error occurred';
+                document.getElementById('responseStatus').textContent = 'Request failed';
+            }
         }
     } catch (error) {
+        // Network or server error: show message and reset UI
         console.error('Error asking agent:', error);
         document.getElementById('thinkingArea').value = '';
-        document.getElementById('responseArea').value = 'Connection error: ' + error.message + 
+        document.getElementById('responseArea').value = 'Connection error: ' + error.message +
             '\n\nPlease check that the server is running and try again.';
         document.getElementById('thinkingStatus').textContent = 'Connection failed';
         document.getElementById('responseStatus').textContent = 'Network error';
     }
 
-    // Reset UI
+    // Reset UI (spinner, loading text, button state)
     isProcessing = false;
     document.getElementById('spinner').style.display = 'none';
     document.getElementById('loadingText').style.display = 'none';

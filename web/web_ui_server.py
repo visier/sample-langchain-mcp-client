@@ -6,6 +6,91 @@ from threading import Thread
 import webbrowser
 
 
+def _msg_content(msg):
+    """Return the content field from a message object or dict."""
+    if hasattr(msg, "content"):
+        return getattr(msg, "content", None)
+    if isinstance(msg, dict):
+        return msg.get("content")
+    return None
+
+
+def _format_stream_update(update_dict):
+    """
+    Format a single stream update (node name -> state update) for display.
+
+    Converts LangGraph stream chunks (e.g. model/tools node updates) into
+    readable lines for the Agent Reasoning UI (tool calls, tool results, model output).
+    """
+    lines = []
+    for node_name, state in (update_dict.items() if isinstance(update_dict, dict) else []):
+        if not isinstance(state, dict):
+            continue
+        messages = state.get("messages") or []
+        for msg in messages:
+            content = _msg_content(msg)
+            if content:
+                content = str(content).strip()
+            if not content:
+                if hasattr(msg, "tool_calls") and getattr(msg, "tool_calls", None):
+                    for tc in msg.tool_calls or []:
+                        name = tc.get("name", "?") if isinstance(tc, dict) else getattr(tc, "name", "?")
+                        args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
+                        lines.append(f"[{node_name}] Calling tool: {name} with args: {args}")
+                elif isinstance(msg, dict) and msg.get("tool_calls"):
+                    for tc in msg["tool_calls"] or []:
+                        name = tc.get("name", "?")
+                        args = tc.get("args", {})
+                        lines.append(f"[{node_name}] Calling tool: {name} with args: {args}")
+                continue
+            msg_type = getattr(msg, "type", "") if hasattr(msg, "type") else (msg.get("type") if isinstance(msg, dict) else "")
+            if "tool" in str(msg_type).lower() or (hasattr(msg, "tool_call_id") and getattr(msg, "tool_call_id", None)) or (isinstance(msg, dict) and msg.get("tool_call_id")):
+                lines.append(f"[{node_name}] Tool result: {content[:500]}{'...' if len(content) > 500 else ''}")
+            else:
+                lines.append(f"[{node_name}] {content[:500]}{'...' if len(content) > 500 else ''}")
+    return "\n".join(lines) if lines else None
+
+
+def _extract_final_response_and_thinking(state: dict):
+    """
+    Extract final response text and full thinking from graph state.
+
+    state: Graph state dict with a "messages" list (e.g. from stream_mode="values").
+    Returns: (final_response_str, thinking_str) for the UI.
+    """
+    if not state or not isinstance(state, dict):
+        return None, ""
+    messages = state.get("messages") or []
+    all_content = []
+    thinking_content = []
+    for i, message in enumerate(messages):
+        if hasattr(message, "content") and message.content:
+            content_str = str(message.content).strip()
+            if content_str:
+                all_content.append(content_str)
+                msg_type = getattr(message, "type", "")
+                if msg_type in ("tool", "tool_use") or "tool" in content_str.lower():
+                    thinking_content.append(f"Tool: {content_str}")
+                elif i == 0:
+                    thinking_content.append(f"User: {content_str}")
+                elif i < len(messages) - 1:
+                    thinking_content.append(f"Agent: {content_str}")
+    thinking = "\n\n".join(thinking_content) if thinking_content else "Agent processed the request"
+    final_response = None
+    for content in (all_content or []):
+        if "FINAL RESPONSE:" in content:
+            final_response = content.split("FINAL RESPONSE:", 1)[1].strip()
+            break
+    if not final_response and all_content:
+        for content in reversed(all_content):
+            if not any(w in content.lower() for w in ("tool", "function", "action:", "observation:")):
+                final_response = content
+                break
+    if not final_response and all_content:
+        final_response = all_content[-1]
+    return final_response or "Response received but content was empty", thinking
+
+
 class WebUIHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Parse the URL to get the path without query parameters
@@ -168,86 +253,46 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     self._send_json_response({'success': False, 'error': 'Agent service not available'})
                     return
                 
-                # Run agent in background
-                result = {'response': None, 'thinking': None, 'error': None}
+                def send_sse(obj):
+                    self.wfile.write(("data: " + json.dumps(obj) + "\n\n").encode("utf-8"))
+                    self.wfile.flush()
 
-                async def run_agent():
+                async def stream_agent():
+                    last_values = None
                     try:
-                        messages = [{"role": "user", "content": question}]
-                        response = await agent.ainvoke({"messages": messages})
-                        
-                        print(f"DEBUG: Agent response structure: {type(response)}")
-                        print(f"DEBUG: Agent response keys: {response.keys() if isinstance(response, dict) else 'Not a dict'}")
-                        
-                        # Simple approach - just extract all content
-                        all_content = []
-                        thinking_content = []
-                        
-                        if isinstance(response, dict) and "messages" in response:
-                            for i, message in enumerate(response["messages"]):
-                                print(f"DEBUG: Message {i}: type={getattr(message, 'type', 'no type')}, content type={type(getattr(message, 'content', None))}")
-                                
-                                if hasattr(message, 'content') and message.content:
-                                    content_str = str(message.content)
-                                    
-                                    # Add all non-empty content to all_content
-                                    if content_str.strip():
-                                        all_content.append(content_str.strip())
-                                        
-                                        # Categorize for thinking vs response
-                                        msg_type = getattr(message, 'type', '')
-                                        if msg_type in ['tool', 'tool_use'] or 'tool' in content_str.lower():
-                                            thinking_content.append(f"Tool: {content_str}")
-                                        elif i == 0:  # First message is user
-                                            thinking_content.append(f"User: {content_str}")
-                                        elif i < len(response["messages"]) - 1:  # Not the last message
-                                            thinking_content.append(f"Agent: {content_str}")
-                        
-                        # Set thinking
-                        if thinking_content:
-                            result['thinking'] = '\n\n'.join(thinking_content)
-                        else:
-                            result['thinking'] = "Agent processed the request"
-                        
-                        # Set response - look for FINAL RESPONSE: marker first, then fallback to previous logic
-                        if all_content:
-                            final_response = None
-                            
-                            # First, try to find content with "FINAL RESPONSE:" marker
-                            for content in all_content:
-                                if "FINAL RESPONSE:" in content:
-                                    # Extract everything after "FINAL RESPONSE:"
-                                    final_response = content.split("FINAL RESPONSE:", 1)[1].strip()
-                                    break
-                            
-                            # Fallback: Try to find the final response (usually the last message that's not a tool)
-                            if not final_response:
-                                for content in reversed(all_content):
-                                    if not any(word in content.lower() for word in ['tool', 'function', 'action:', 'observation:']):
-                                        final_response = content
-                                        break
-                            
-                            # Additional fallback - if still no response, use the last content item
-                            if not final_response and all_content:
-                                final_response = all_content[-1]
-                            
-                            result['response'] = final_response or "Response received but content was empty"
-                            
-                            # Debug logging
-                            print(f"DEBUG: Final response found: {bool(final_response)}")
-                            print(f"DEBUG: All content count: {len(all_content)}")
-                            if final_response:
-                                print(f"DEBUG: Final response preview: {final_response[:100]}...")
-                        else:
-                            result['response'] = f"No content found in response. Response structure: {response}"
-                        
+                        inputs = {"messages": [{"role": "user", "content": question}]}
+                        stream = agent.astream(inputs, stream_mode=["updates", "values"])
+                        async for chunk in stream:
+                            if isinstance(chunk, tuple) and len(chunk) == 2:
+                                mode, payload = chunk
+                                if mode == "values":
+                                    last_values = payload
+                                elif mode == "updates":
+                                    line = _format_stream_update(payload)
+                                    if line:
+                                        send_sse({"type": "thinking", "content": line})
+                            elif isinstance(chunk, dict):
+                                if "messages" in chunk and not any(k in chunk for k in ("model", "tools") if chunk.get(k) is not None):
+                                    last_values = chunk
+                                else:
+                                    line = _format_stream_update(chunk)
+                                    if line:
+                                        send_sse({"type": "thinking", "content": line})
+                            else:
+                                last_values = chunk
+                        response, thinking = _extract_final_response_and_thinking(last_values or {})
+                        send_sse({"type": "done", "success": True, "response": response, "thinking": thinking})
                     except Exception as e:
-                        result['error'] = str(e)
-                        print(f"DEBUG: Exception in run_agent: {e}")
                         import traceback
                         traceback.print_exc()
+                        send_sse({"type": "done", "success": False, "error": str(e)})
 
-                # Try to get existing event loop, create new one if needed
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "close")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_closed():
@@ -255,19 +300,8 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 except RuntimeError:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                
-                # Run the agent without closing the loop
-                loop.run_until_complete(run_agent())
-                
-                if result['error']:
-                    self._send_json_response({'success': False, 'error': result['error']})
-                else:
-                    self._send_json_response({
-                        'success': True,
-                        'thinking': result['thinking'],
-                        'response': result['response']
-                    })
-                
+                loop.run_until_complete(stream_agent())
+                return
             except Exception as e:
                 self._send_json_response({'success': False, 'error': str(e)})
         else:
