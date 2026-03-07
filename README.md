@@ -244,7 +244,7 @@ The system operates in several stages:
 1. **Detects available LLM**: Checks for AWS credentials first, falls back to Ollama if not found
 2. **AWS Bedrock path**: Initializes Claude Sonnet model via AWS Bedrock
 3. **Ollama path**: Connects to local Ollama service and uses specified model (default: llama2)
-4. Creates a LangChain agent with access to Visier MCP tools
+4. Creates a LangChain agent with access to Visier MCP tools and prompts
 5. Configures the agent to intelligently use available tools
 
 ### 3. Web Interface
@@ -254,7 +254,7 @@ The system operates in several stages:
 4. Shows both agent reasoning and final responses
 
 ### 4. Query Processing
-When you ask a question:
+When you ask a question, or pick a prompt from a template:
 1. **Agent Planning**: The agent analyzes your question and decides which tools to use
 2. **Tool Execution**: Calls appropriate Visier MCP tools (like `ask_vee_question`)
 3. **Response Generation**: Processes tool results and generates a human-friendly response
