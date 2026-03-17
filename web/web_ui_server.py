@@ -213,7 +213,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     messages = await WebUIHandler.get_prompt_messages_async(prompt_name, prompt_arguments)
                     parts = []
                     for m in messages:
-                        content = (m.get('content') or '').strip()
+                        content = str(m).strip()
                         if content:
                             parts.append(content)
                     return '\n\n'.join(parts) if parts else ''

@@ -115,7 +115,7 @@ async def get_prompt_messages_async(
     client: MultiServerMCPClient,
     prompt_name: str,
     arguments: dict[str, str] | None = None,
-) -> list[dict]:
+) -> list[str]:
     """Load prompt content from MCP server and return list of {role, content} for the agent."""
     if not client or not prompt_name:
         return []
@@ -123,9 +123,8 @@ async def get_prompt_messages_async(
     messages = await client.get_prompt("visier-service", prompt_name, arguments=arguments)
     result = []
     for m in messages:
-        role = "user" if isinstance(m, HumanMessage) else "assistant"
         content = getattr(m, "content", "") or ""
-        result.append({"role": role, "content": content})
+        result.append(content)
     return result
 
 

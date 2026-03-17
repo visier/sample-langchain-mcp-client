@@ -18,7 +18,7 @@ This project provides a LangGraph MCP (Model Context Protocol) client for connec
 
 - **OAuth 2.0 Authentication**: Secure connection to your Visier tenant
 - **Flexible AI Backend**: See [LLM configuration section](#llm-setup-choose-one)
-- **Agent Transparency**: See both the agent's thinking process and final responses
+- **Agent Transparency**: See both the agent's streamed thinking process and final responses
 - **Visier Integration**: Direct access to your Visier analytics through MCP tools
 - **Free Option**: Works completely free with local Ollama models
 

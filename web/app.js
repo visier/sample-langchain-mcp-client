@@ -442,24 +442,7 @@ async function askAgent() {
                 updateAskButtonState();
             }
         } else {
-            // --- Non-streaming path: single JSON response ---
-            const data = await response.json();
-            if (data.success) {
-                if (data.thinking) {
-                    document.getElementById('thinkingArea').value = data.thinking;
-                    document.getElementById('thinkingStatus').textContent = 'Reasoning complete';
-                } else {
-                    document.getElementById('thinkingArea').value = 'Agent reasoning not captured for this request.';
-                    document.getElementById('thinkingStatus').textContent = 'Reasoning not available';
-                }
-                document.getElementById('responseArea').value = data.response;
-                document.getElementById('responseStatus').textContent = 'Response ready';
-            } else {
-                document.getElementById('thinkingArea').value = '';
-                document.getElementById('responseArea').value = 'Error: ' + (data.error || 'Unknown error occurred');
-                document.getElementById('thinkingStatus').textContent = 'Error occurred';
-                document.getElementById('responseStatus').textContent = 'Request failed';
-            }
+            throw new Error('Expecting streaming response, got: ' + contentType);
         }
     } catch (error) {
         // Network or server error: show message and reset UI
