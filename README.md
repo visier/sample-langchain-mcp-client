@@ -14,6 +14,9 @@ This project provides a LangGraph MCP (Model Context Protocol) client for connec
 ![Ask question and get results](docs/images/ask_question_result.png)
 *Ask a question and see the agent's reasoning and response.*
 
+![Select a prompt](docs/images/pick_prompt.png)
+*Select a prompt and click Load Prompt Into Question to use a prompt.*
+
 ## Features
 
 - **OAuth 2.0 Authentication**: Secure connection to your Visier tenant
