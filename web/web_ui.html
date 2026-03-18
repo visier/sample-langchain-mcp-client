@@ -35,14 +35,42 @@
                     <div class="info-label">Available MCP Tools</div>
                     <div class="tools-container" id="toolsContainer" style="display: block; width: 100%; height: 350px; overflow-y: auto; background: white; border: 1px solid rgba(0, 138, 210, 0.2); border-radius: 6px;">Loading available tools...</div>
                 </div>
+                <div class="prompts-section-standalone" style="margin-top: 1rem;">
+                    <div class="info-label">Available MCP Prompts</div>
+                    <div class="prompts-container" id="promptsContainer" style="display: block; width: 100%; max-height: 200px; overflow-y: auto; background: white; border: 1px solid rgba(0, 138, 210, 0.2); border-radius: 6px;">Loading available prompts...</div>
+                </div>
             </div>
             
             <div class="input-section">
-                <div class="form-group">
-                    <label class="form-label" for="questionInput">Ask a question</label>
-                    <input type="text" id="questionInput" class="form-input" 
-                           placeholder="e.g., Give me the latest month of headcount data" />
-                    <button id="askButton" class="btn" onclick="askAgent()">➤</button>
+                <div class="prompt-load-section">
+                    <h3 class="input-section-title">Load prompt (optional)</h3>
+                    <p class="input-section-desc">Select a prompt and optional parameters, then load it into the question box below. Edit if needed, then send.</p>
+                    <div class="form-group form-row-prompt">
+                        <div class="form-group-inline">
+                            <label class="form-label" for="promptSelect">Prompt</label>
+                            <select id="promptSelect" class="form-select" aria-label="Select a prompt">
+                                <option value="">None</option>
+                            </select>
+                        </div>
+                        <div class="form-group-inline">
+                            <button type="button" id="loadPromptButton" class="btn btn-secondary" onclick="loadPromptIntoQuestion()">Load prompt into question</button>
+                        </div>
+                    </div>
+                    <div id="promptParamsSection" class="prompt-params-section" style="display: none;">
+                        <div class="form-label">Prompt parameters</div>
+                        <div id="promptParamsContainer" class="prompt-params-container"></div>
+                    </div>
+                </div>
+                <div class="question-send-section">
+                    <h3 class="input-section-title">Ask a question</h3>
+                    <div class="form-group">
+                        <label class="form-label" for="questionInput">Question</label>
+                        <div class="question-input-row">
+                            <textarea id="questionInput" class="form-input question-textarea" rows="4" 
+                                      placeholder="Type your question or load a prompt above to fill this box. Use Ctrl+Enter (Cmd+Enter) to send."></textarea>
+                            <button id="askButton" class="btn btn-ask" onclick="askAgent()">Send question ➤</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

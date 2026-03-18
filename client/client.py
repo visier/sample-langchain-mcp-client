@@ -4,12 +4,15 @@ import traceback
 import webbrowser
 import logging
 import json
+from functools import partial
 from threading import Thread
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.shared.auth import OAuthToken, OAuthClientInformationFull, ProtectedResourceMetadata
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain.agents import create_agent
+from mcp.types import Prompt
 from pydantic import AnyHttpUrl
 from client.llm_provider import LLM_PROVIDER, get_llm_provider, get_current_model_name
 from web.web_ui_server import WebUIServer
@@ -45,6 +48,7 @@ captured_code = None
 captured_state = None
 app_agent = None
 available_tools = []
+available_prompts = []
 ui_server = WebUIServer()
 
 def set_captured_code(code, state):
@@ -85,7 +89,46 @@ def get_tools():
 
     return tools_details
 
-ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools)
+def get_prompts():
+    """Callback function to get the available prompts list with full details"""
+    prompts_details = []
+    for prompt in available_prompts:
+        args = getattr(prompt, 'arguments', None) or []
+        arguments_schema = [
+            {
+                'name': getattr(a, 'name', ''),
+                'description': getattr(a, 'description', None),
+                'required': getattr(a, 'required', None),
+            }
+            for a in args
+        ]
+        prompt_info = {
+            'name': prompt.name,
+            'description': getattr(prompt, 'description', 'No description available'),
+            'arguments': arguments_schema,
+        }
+        prompts_details.append(prompt_info)
+    return prompts_details
+
+
+async def get_prompt_messages_async(
+    client: MultiServerMCPClient,
+    prompt_name: str,
+    arguments: dict[str, str] | None = None,
+) -> list[str]:
+    """Load prompt content from MCP server and return list of {role, content} for the agent."""
+    if not client or not prompt_name:
+        return []
+    arguments = arguments or {}
+    messages = await client.get_prompt("visier-service", prompt_name, arguments=arguments)
+    result = []
+    for m in messages:
+        content = getattr(m, "content", "") or ""
+        result.append(content)
+    return result
+
+
+ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts)
 
 class InMemoryTokenStorage(TokenStorage):
     def __init__(self):
@@ -118,6 +161,24 @@ async def automated_callback_handler() -> tuple[str, str | None]:
 async def handle_redirect(auth_url: str) -> None:
     print(f"\n Opening browser: {auth_url}")
     webbrowser.open(auth_url)
+
+async def load_all_prompts_from_server(
+    client: MultiServerMCPClient,
+    server_name: str,
+) -> list[Prompt]:
+    """Load all prompts from an MCP server.
+
+    Args:
+        client: The MultiServerMCPClient instance.
+        server_name: Name of the server to load prompts from (e.g. "visier-service").
+
+    Returns:
+        A dict mapping each prompt name to its list of LangChain messages
+        (HumanMessage | AIMessage).
+    """
+    async with client.session(server_name) as session:
+        result = await session.list_prompts()
+        return result.prompts
 
 # --- MAIN ---
 async def main():
@@ -166,7 +227,12 @@ async def main():
     try:
         mcp_tools = await client.get_tools()
         available_tools.extend(mcp_tools)
+
+        prompts_result = await load_all_prompts_from_server(client, "visier-service")
+        available_prompts.extend(prompts_result)
+
         print(f"\n Authenticated. Available MCP Tools: {[t.name for t in mcp_tools]}")
+        print(f"\n Available MCP Prompts: {[p.name for p in available_prompts]}")
 
         do_verbose_logging = os.environ.get("LANGCHAIN_VERBOSE", "False").lower() == "true"
         app_agent = create_agent(
@@ -176,7 +242,10 @@ async def main():
             debug=do_verbose_logging
         )
 
-        ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools)
+        ui_server.set_callbacks(
+            set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts,
+            get_prompt_messages_async=partial(get_prompt_messages_async, client)
+        )
 
         # Start the web UI after successful authentication
         ui_server.start_ui_in_background()
