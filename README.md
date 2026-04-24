@@ -28,18 +28,31 @@ This project provides a LangGraph MCP (Model Context Protocol) client for connec
 ## Architecture
 
 ```
-sample-langgraph-mcp-client/
+sample-langchain-mcp-client/
 ├── client/
-│   ├── __init__.py
-│   └── client.py          # Main authentication and agent setup
+│   ├── client.py          # Authentication, MCP connection, and app wiring
+│   ├── agent_backend.py   # AgentBackend interface
+│   ├── langchain_agent.py # LangChain/LangGraph agent backend
+│   ├── bedrock_agent.py   # AWS boto3 Bedrock agent backend
+│   ├── llm_provider.py    # LangChain LLM provider selection
+│   ├── messages.py        # Messages and prompts
+│   └── oauth2.py          # Password grant OAuth provider
 ├── web/
-│   ├── __init__.py
 │   ├── web_ui_server.py   # Web server and HTTP request handling
-│   └── web_ui.html        # Frontend interface with agent interaction
+│   └── web_ui.html        # Frontend interface
 ├── main.py                # Entry point script
 ├── pyproject.toml         # Project dependencies
 └── README.md              # This file
 ```
+
+### Agent backends
+
+The agent abstraction (`agent_backend.py`) allows switching LLM backends without changing any other code. Both backends function the same. This is just showcasing how each backend can be implemented.
+
+| `AGENT_BACKEND` | `LLM_PROVIDER` | How it works |
+|---|---|---|
+| `langchain` (default) | `ollama` / `anthropic` / `bedrock` / `openai` | LangGraph react-agent loop via LangChain |
+| `boto3` | *(always bedrock)* | Direct AWS boto3 Converse API loop, no LangChain in the agent loop |
 
 ## Prerequisites
 
@@ -75,35 +88,46 @@ Before running the client, you must set the following environment variables:
 **Optional**: Your Visier tenant's vanity name
 - **Description**: This is only needed in certain development scenarios
 
+### Agent Backend
+
+#### `AGENT_BACKEND`
+**Optional**: Which agent loop implementation to use
+- **Options**: `langchain` (default), `boto3`
+- **`langchain`**: Uses LangGraph react-agent loop. `LLM_PROVIDER` selects the model.
+- **`boto3`**: Drives the Bedrock Converse API directly. No LangChain in the agent loop. `LLM_PROVIDER` is ignored and Bedrock is used.
+
 ### LLM Provider Configuration
 
 #### `LLM_PROVIDER`
-**Optional**: Choose your AI provider
-- **Description**: Specifies which AI service to use
+**Optional**: Choose your AI provider (only used when `AGENT_BACKEND=langchain`)
 - **Options**: `ollama`, `anthropic`, `bedrock`, `openai`
 - **Default**: `ollama`
 - **Example**: `export LLM_PROVIDER="bedrock"`
 
 #### `LLM_MODEL_ID`
-**Optional**: Specific model to use
-- **Description**: Override the default model for your chosen provider
+**Optional**: Specific model identifier
 - **Examples**:
-  - Ollama: `qwen2.5`, `llama3.1`, `mistral`
+  - Ollama: `qwen2.5`, `llama3.1`
   - Anthropic: `claude-3-5-sonnet-20241022`
-  - Bedrock: `anthropic.claude-3-5-sonnet-20241022-v2:0`
-  - OpenAI: `gpt-5.3-codex`, `gpt-4-turbo`
+  - Bedrock (LangChain or boto3): `anthropic.claude-3-5-sonnet-20241022-v2:0`
+  - OpenAI: `gpt-4-turbo`
 
 ### AWS Bedrock Variables
 
 #### `AWS_BEARER_TOKEN_BEDROCK`
-**Required for Bedrock**: AWS Bearer Token for Bedrock access
+**Required for Langchain using Bedrock**: AWS Bearer Token for Bedrock access if Langchain agent is used.
 - **Description**: Bearer token for AWS Bedrock authentication
-- **Note**: Required when using `LLM_PROVIDER=bedrock`
+- **Note**: Only needed when `AGENT_BACKEND=langchain` and `LLM_PROVIDER=bedrock`. Not used by the boto3 path, which relies on SigV4 signing and does not support Bedrock API keys.
 
 #### `AWS_REGION_BEDROCK`
 **Optional**: AWS region for Bedrock
 - **Description**: AWS region where your Bedrock models are available
 - **Default**: `us-west-2`
+
+#### AWS credentials
+boto3 resolves credentials automatically from the standard AWS credential chain:
+`~/.aws/credentials` → `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars → IAM role.
+No additional env var is needed beyond region.
 
 ### Anthropic Variables
 
@@ -154,8 +178,20 @@ export LLM_MODEL_ID="llama3.1"   # Use specific model
 ollama serve
 ```
 
-#### Option B: AWS Bedrock (Premium Cloud)
+#### Option B: AWS Bedrock via AWS boto3 SDK (recommended for Bedrock)
+Uses the inline boto3 Converse API — no LangChain in the agent loop.
 ```bash
+export AGENT_BACKEND="boto3"
+export AWS_REGION_BEDROCK="us-west-2"              # Optional, defaults to us-west-2
+export LLM_MODEL_ID="anthropic.claude-3-5-sonnet-20241022-v2:0"
+
+# AWS credentials are resolved from ~/.aws/credentials for boto3 SDK. No AWS_BEARER_TOKEN_BEDROCK needed.
+```
+
+#### Option C: AWS Bedrock via LangChain
+Uses LangChain's ChatBedrockConverse wrapper with the LangGraph agent loop.
+```bash
+export AGENT_BACKEND="langchain"   # default, can be omitted
 export LLM_PROVIDER="bedrock"
 export AWS_BEARER_TOKEN_BEDROCK="your-bearer-token"
 export AWS_REGION_BEDROCK="us-west-2"  # Optional, defaults to us-west-2
@@ -164,7 +200,7 @@ export AWS_REGION_BEDROCK="us-west-2"  # Optional, defaults to us-west-2
 export LLM_MODEL_ID="anthropic.claude-3-5-sonnet-20241022-v2:0"
 ```
 
-#### Option C: Anthropic Direct (Premium Cloud)
+#### Option D: Anthropic Direct (Premium Cloud)
 ```bash
 export LLM_PROVIDER="anthropic"
 export ANTHROPIC_API_KEY="sk-ant-your-api-key"
@@ -173,7 +209,7 @@ export ANTHROPIC_API_KEY="sk-ant-your-api-key"
 export LLM_MODEL_ID="claude-3-5-sonnet-20241022"
 ```
 
-#### Option D: OpenAI (Premium Cloud)
+#### Option E: OpenAI (Premium Cloud)
 ```bash
 export LLM_PROVIDER="openai"
 export OPENAI_API_KEY="sk-your-openai-api-key"
@@ -244,11 +280,10 @@ The system operates in several stages:
 5. Retrieves available MCP tools from the Visier server
 
 ### 2. Agent Creation
-1. **Detects available LLM**: Checks for AWS credentials first, falls back to Ollama if not found
-2. **AWS Bedrock path**: Initializes Claude Sonnet model via AWS Bedrock
-3. **Ollama path**: Connects to local Ollama service and uses specified model (default: llama2)
-4. Creates a LangChain agent with access to Visier MCP tools and prompts
-5. Configures the agent to intelligently use available tools
+1. Reads `AGENT_BACKEND` to select the agent loop implementation
+2. **`boto3` path**: Drives the Bedrock Converse API directly using boto3, with no LangChain dependency in the agent loop
+3. **`langchain` path** (default): Uses a LangGraph react-agent; `LLM_PROVIDER` selects the model (Ollama, Anthropic, Bedrock via LangChain, or OpenAI)
+4. Both backends stream intermediate reasoning steps and the final response to the web UI
 
 ### 3. Web Interface
 1. Starts a web server on `http://localhost:8001` 
@@ -303,8 +338,9 @@ The authentication process:
 
 #### AWS Bedrock
 - Verify your AWS credentials have Bedrock access permissions
-- Ensure you have access to Claude models in your AWS region
-- Check that `langchain-aws` package is properly installed
+- Ensure the model specified in `LLM_MODEL_ID` is available in your AWS region
+- For `AGENT_BACKEND=boto3`: credentials come from `~/.aws/credentials`. Guide: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html
+- For `AGENT_BACKEND=langchain` with `LLM_PROVIDER=bedrock`: also ensure `langchain-aws` is installed
 
 #### Ollama
 - **Installation**: Install Ollama from https://ollama.ai

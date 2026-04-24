@@ -11,10 +11,10 @@ from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.shared.auth import OAuthToken, OAuthClientInformationFull, ProtectedResourceMetadata
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain.agents import create_agent
 from mcp.types import Prompt
 from pydantic import AnyHttpUrl
-from client.llm_provider import LLM_PROVIDER, get_llm_provider, get_current_model_name
+from client.llm_provider import LLM_PROVIDER, LLM_MODEL_ID, get_current_model_name
+from client.agent_backend import create_agent_backend
 from web.web_ui_server import WebUIServer
 from .messages import SYSTEM_PROMPT
 from .oauth2 import OAuthPasswordGrantClientProvider
@@ -67,6 +67,9 @@ def get_server_url():
 
 def get_model_name():
     """Callback function to get the current model name"""
+    agent_backend = os.environ.get("AGENT_BACKEND", "langchain").lower()
+    if agent_backend == "boto3":
+        return f"Bedrock ({LLM_MODEL_ID})"
     return f"{LLM_PROVIDER} ({get_current_model_name()})"
 
 def get_tools():
@@ -225,6 +228,10 @@ async def main():
     })
 
     try:
+        # get_tools() returns StructuredTool objects via langchain-mcp-adapters.
+        # Using the raw mcp.ClientSession here instead (even for the non-langchain boto3 agent) is not worth it.
+        # MultiServerMCPClient owns the authenticated session for the whole app lifetime, so replacing it would require
+        # forking main() into two eparate code paths — duplicating all session, prompt, and UI callback wiring.
         mcp_tools = await client.get_tools()
         available_tools.extend(mcp_tools)
 
@@ -234,13 +241,7 @@ async def main():
         print(f"\n Authenticated. Available MCP Tools: {[t.name for t in mcp_tools]}")
         print(f"\n Available MCP Prompts: {[p.name for p in available_prompts]}")
 
-        do_verbose_logging = os.environ.get("LANGCHAIN_VERBOSE", "False").lower() == "true"
-        app_agent = create_agent(
-            get_llm_provider(), 
-            mcp_tools,
-            system_prompt=SYSTEM_PROMPT,
-            debug=do_verbose_logging
-        )
+        app_agent = create_agent_backend(mcp_tools)
 
         ui_server.set_callbacks(
             set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts,
