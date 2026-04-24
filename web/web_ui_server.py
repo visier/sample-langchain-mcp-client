@@ -5,90 +5,7 @@ from urllib.parse import parse_qs, urlparse
 from threading import Thread
 import webbrowser
 
-
-def _msg_content(msg):
-    """Return the content field from a message object or dict."""
-    if hasattr(msg, "content"):
-        return getattr(msg, "content", None)
-    if isinstance(msg, dict):
-        return msg.get("content")
-    return None
-
-
-def _format_stream_update(update_dict):
-    """
-    Format a single stream update (node name -> state update) for display.
-
-    Converts LangGraph stream chunks (e.g. model/tools node updates) into
-    readable lines for the Agent Reasoning UI (tool calls, tool results, model output).
-    """
-    lines = []
-    for node_name, state in (update_dict.items() if isinstance(update_dict, dict) else []):
-        if not isinstance(state, dict):
-            continue
-        messages = state.get("messages") or []
-        for msg in messages:
-            content = _msg_content(msg)
-            if content:
-                content = str(content).strip()
-            if not content:
-                if hasattr(msg, "tool_calls") and getattr(msg, "tool_calls", None):
-                    for tc in msg.tool_calls or []:
-                        name = tc.get("name", "?") if isinstance(tc, dict) else getattr(tc, "name", "?")
-                        args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
-                        lines.append(f"[{node_name}] Calling tool: {name} with args: {args}")
-                elif isinstance(msg, dict) and msg.get("tool_calls"):
-                    for tc in msg["tool_calls"] or []:
-                        name = tc.get("name", "?")
-                        args = tc.get("args", {})
-                        lines.append(f"[{node_name}] Calling tool: {name} with args: {args}")
-                continue
-            msg_type = getattr(msg, "type", "") if hasattr(msg, "type") else (msg.get("type") if isinstance(msg, dict) else "")
-            if "tool" in str(msg_type).lower() or (hasattr(msg, "tool_call_id") and getattr(msg, "tool_call_id", None)) or (isinstance(msg, dict) and msg.get("tool_call_id")):
-                lines.append(f"[{node_name}] Tool result: {content[:500]}{'...' if len(content) > 500 else ''}")
-            else:
-                lines.append(f"[{node_name}] {content[:500]}{'...' if len(content) > 500 else ''}")
-    return "\n".join(lines) if lines else None
-
-
-def _extract_final_response_and_thinking(state: dict):
-    """
-    Extract final response text and full thinking from graph state.
-
-    state: Graph state dict with a "messages" list (e.g. from stream_mode="values").
-    Returns: (final_response_str, thinking_str) for the UI.
-    """
-    if not state or not isinstance(state, dict):
-        return None, ""
-    messages = state.get("messages") or []
-    all_content = []
-    thinking_content = []
-    for i, message in enumerate(messages):
-        if hasattr(message, "content") and message.content:
-            content_str = str(message.content).strip()
-            if content_str:
-                all_content.append(content_str)
-                msg_type = getattr(message, "type", "")
-                if msg_type in ("tool", "tool_use") or "tool" in content_str.lower():
-                    thinking_content.append(f"Tool: {content_str}")
-                elif i == 0:
-                    thinking_content.append(f"User: {content_str}")
-                elif i < len(messages) - 1:
-                    thinking_content.append(f"Agent: {content_str}")
-    thinking = "\n\n".join(thinking_content) if thinking_content else "Agent processed the request"
-    final_response = None
-    for content in (all_content or []):
-        if "FINAL RESPONSE:" in content:
-            final_response = content.split("FINAL RESPONSE:", 1)[1].strip()
-            break
-    if not final_response and all_content:
-        for content in reversed(all_content):
-            if not any(w in content.lower() for w in ("tool", "function", "action:", "observation:")):
-                final_response = content
-                break
-    if not final_response and all_content:
-        final_response = all_content[-1]
-    return final_response or "Response received but content was empty", thinking
+from client.agent_backend import ThinkingChunk, FinalChunk
 
 
 class WebUIHandler(BaseHTTPRequestHandler):
@@ -258,30 +175,15 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     self.wfile.flush()
 
                 async def stream_agent():
-                    last_values = None
                     try:
-                        inputs = {"messages": [{"role": "user", "content": question}]}
-                        stream = agent.astream(inputs, stream_mode=["updates", "values"])
-                        async for chunk in stream:
-                            if isinstance(chunk, tuple) and len(chunk) == 2:
-                                mode, payload = chunk
-                                if mode == "values":
-                                    last_values = payload
-                                elif mode == "updates":
-                                    line = _format_stream_update(payload)
-                                    if line:
-                                        send_sse({"type": "thinking", "content": line})
-                            elif isinstance(chunk, dict):
-                                if "messages" in chunk and not any(k in chunk for k in ("model", "tools") if chunk.get(k) is not None):
-                                    last_values = chunk
+                        async for chunk in agent.astream(question):
+                            if isinstance(chunk, ThinkingChunk):
+                                send_sse({"type": "thinking", "content": chunk.content})
+                            elif isinstance(chunk, FinalChunk):
+                                if chunk.success:
+                                    send_sse({"type": "done", "success": True, "response": chunk.response, "thinking": chunk.thinking})
                                 else:
-                                    line = _format_stream_update(chunk)
-                                    if line:
-                                        send_sse({"type": "thinking", "content": line})
-                            else:
-                                last_values = chunk
-                        response, thinking = _extract_final_response_and_thinking(last_values or {})
-                        send_sse({"type": "done", "success": True, "response": response, "thinking": thinking})
+                                    send_sse({"type": "done", "success": False, "error": chunk.error})
                     except Exception as e:
                         import traceback
                         traceback.print_exc()

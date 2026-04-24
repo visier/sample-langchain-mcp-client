@@ -1,0 +1,122 @@
+"""
+Agent backend abstraction.
+
+Defines a common streaming protocol so web_ui_server.py is decoupled from
+any specific LLM framework (LangChain/LangGraph or direct boto3).
+
+Backends yield ThinkingChunk objects for intermediate reasoning steps and a
+single FinalChunk when the agent has produced its final answer.
+"""
+import os
+from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import AsyncIterator
+
+
+# ---------------------------------------------------------------------------
+# Tool definition – LangChain-free representation of an MCP tool
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ToolDefinition:
+    """Framework-agnostic description of a single MCP tool."""
+    name: str
+    description: str
+    schema: dict
+    invoke: Callable[[dict], Awaitable[str]]
+
+
+# ---------------------------------------------------------------------------
+# Chunk types – the common streaming protocol
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ThinkingChunk:
+    """An intermediate reasoning step emitted while the agent is working."""
+    content: str
+
+
+@dataclass
+class FinalChunk:
+    """Terminal chunk carrying the agent's final answer."""
+    response: str
+    success: bool
+    thinking: str = ""
+    error: str | None = None
+
+
+AgentChunk = ThinkingChunk | FinalChunk
+
+
+# ---------------------------------------------------------------------------
+# Abstract base
+# ---------------------------------------------------------------------------
+
+class AgentBackend(ABC):
+    """Common interface for all agent backends."""
+
+    @abstractmethod
+    async def astream(self, question: str) -> AsyncIterator[AgentChunk]:
+        """Stream agent chunks for *question*.
+
+        Yields zero or more ThinkingChunks followed by exactly one FinalChunk.
+        """
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def extract_final_response(text: str) -> str:
+    """Return the text after the 'FINAL RESPONSE:' marker, or the full text."""
+    if "FINAL RESPONSE:" in text:
+        return text.split("FINAL RESPONSE:", 1)[1].strip()
+    return text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
+
+def create_agent_backend(tools: list) -> AgentBackend:
+    """Instantiate the correct AgentBackend based on environment config.
+
+    Environment variables:
+        AGENT_BACKEND      – "langchain" (default) | "boto3"
+                             "langchain" runs the LangGraph react-agent loop; the LLM is
+                             determined by LLM_PROVIDER below.
+                             "boto3" drives the Bedrock Converse API directly via the inline
+                             SDK; LLM_PROVIDER is ignored.
+        LLM_PROVIDER       – "bedrock" | "anthropic" | "openai" | "ollama"  (default: "ollama")
+                             Only used when AGENT_BACKEND=langchain.
+        LLM_MODEL_ID       – Model identifier forwarded to the backend.
+        AWS_REGION_BEDROCK – AWS region for the boto3 Bedrock client (default: "us-west-2").
+        LANGCHAIN_VERBOSE  – "true" | "false"  (default: "false")
+    """
+    from client.messages import SYSTEM_PROMPT
+
+    agent_backend = os.environ.get("AGENT_BACKEND", "langchain").lower()
+
+    if agent_backend == "boto3":
+        from client.llm_provider import LLM_MODEL_ID, BEDROCK_REGION
+        from client.langchain_agent import to_tool_definitions
+        from client.bedrock_agent import BedrockAgentBackend
+        model_id = LLM_MODEL_ID or "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        print(f"Using boto3 BedrockAgentBackend with model {model_id}")
+        return BedrockAgentBackend(
+            tools=to_tool_definitions(tools),
+            model_id=model_id,
+            region=BEDROCK_REGION,
+            system_prompt=SYSTEM_PROMPT,
+        )
+
+    from client.llm_provider import LLM_PROVIDER, get_llm_provider
+    from langchain.agents import create_agent
+    from client.langchain_agent import LangChainAgentBackend
+
+    do_verbose = os.environ.get("LANGCHAIN_VERBOSE", "false").lower() == "true"
+    llm = get_llm_provider()
+    agent = create_agent(llm, tools, system_prompt=SYSTEM_PROMPT, debug=do_verbose)
+    print(f"Using LangChainAgentBackend with provider '{LLM_PROVIDER}'")
+    return LangChainAgentBackend(agent)
