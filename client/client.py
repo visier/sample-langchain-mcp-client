@@ -34,6 +34,9 @@ VISIER_TENANT_VANITY = os.environ.get("VISIER_TENANT_VANITY")
 
 USE_PASSWORD_GRANT = (VISIER_USERNAME is not None and VISIER_PASSWORD is not None)
 
+AGENT_BACKEND = os.environ.get("AGENT_BACKEND", "langchain").lower()
+LANGCHAIN_VERBOSE = os.environ.get("LANGCHAIN_VERBOSE", "false").lower() == "true"
+
 OAUTH_CLIENT_STATIC_METADATA = OAuthClientInformationFull(
     client_name="LangChain MCP client for Visier MCP server",
     client_id=VISIER_OAUTH_CLIENT_ID,
@@ -67,8 +70,7 @@ def get_server_url():
 
 def get_model_name():
     """Callback function to get the current model name"""
-    agent_backend = os.environ.get("AGENT_BACKEND", "langchain").lower()
-    if agent_backend == "boto3":
+    if AGENT_BACKEND == "boto3":
         return f"Bedrock ({LLM_MODEL_ID})"
     return f"{LLM_PROVIDER} ({get_current_model_name()})"
 
@@ -241,7 +243,7 @@ async def main():
         print(f"\n Authenticated. Available MCP Tools: {[t.name for t in mcp_tools]}")
         print(f"\n Available MCP Prompts: {[p.name for p in available_prompts]}")
 
-        app_agent = create_agent_backend(mcp_tools)
+        app_agent = create_agent_backend(mcp_tools, agent_backend=AGENT_BACKEND, verbose=LANGCHAIN_VERBOSE)
 
         ui_server.set_callbacks(
             set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts,

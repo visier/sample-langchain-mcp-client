@@ -10,6 +10,7 @@ from typing import AsyncIterator
 from langchain_core.tools import StructuredTool
 
 from client.agent_backend import AgentBackend, AgentChunk, ThinkingChunk, FinalChunk, ToolDefinition, extract_final_response
+from client.constants import FINAL_RESPONSE_MARKER
 
 
 def to_tool_definitions(tools: list[StructuredTool]) -> list[ToolDefinition]:
@@ -146,7 +147,7 @@ class LangChainAgentBackend(AgentBackend):
 
         final_response: str | None = None
         for content in all_content:
-            if "FINAL RESPONSE:" in content:
+            if FINAL_RESPONSE_MARKER in content:
                 final_response = extract_final_response(content)
                 break
         if not final_response:
