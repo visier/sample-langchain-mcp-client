@@ -2,15 +2,15 @@
 boto3 inline Bedrock agent backend.
 
 Drives the ReAct tool-calling loop directly against the Bedrock Converse API.
-Has no LangChain dependency — tools are passed in as ToolDefinition objects,
-which wrap the MCP transport behind a plain async callable.
+Has no LangChain dependency at all.
 """
 import asyncio
 from typing import AsyncIterator
 
 import boto3
 
-from client.agent_backend import AgentBackend, AgentChunk, ThinkingChunk, FinalChunk, ToolDefinition, extract_final_response
+from client.agent_backend import AgentBackend, AgentChunk, ThinkingChunk, FinalChunk, extract_final_response
+from client.bedrock.bedrock_tool import BedrockTool
 from client.messages import SYSTEM_PROMPT
 
 
@@ -19,12 +19,12 @@ class BedrockAgentBackend(AgentBackend):
 
     def __init__(
         self,
-        tools: list[ToolDefinition],
+        tools: list[BedrockTool],
         model_id: str,
         region: str,
         system_prompt: str = SYSTEM_PROMPT,
     ):
-        self._tools_by_name: dict[str, ToolDefinition] = {t.name: t for t in tools}
+        self._tools_by_name: dict[str, BedrockTool] = {t.name: t for t in tools}
         self._bedrock_tools = self._convert_tools(tools)
         self._model_id = model_id
         self._system_prompt = system_prompt
@@ -102,14 +102,14 @@ class BedrockAgentBackend(AgentBackend):
             yield FinalChunk(
                 response="",
                 success=False,
-                error=f"Unexpected stopReason from Bedrock: {stop_reason}",
+                error=f"Unexpected stop reason from Bedrock: {stop_reason}",
                 thinking="\n\n".join(thinking_lines),
             )
             return
 
     @staticmethod
-    def _convert_tools(tools: list[ToolDefinition]) -> list[dict]:
-        """Convert ToolDefinitions to Bedrock toolSpec format."""
+    def _convert_tools(tools: list[BedrockTool]) -> list[dict]:
+        """Convert BedrockTools to Bedrock toolSpec format."""
         return [
             {
                 "toolSpec": {
@@ -122,7 +122,7 @@ class BedrockAgentBackend(AgentBackend):
         ]
 
     async def _invoke_tool(self, tool_name: str, tool_input: dict) -> str:
-        tool: ToolDefinition | None = self._tools_by_name.get(tool_name)
+        tool: BedrockTool | None = self._tools_by_name.get(tool_name)
         if tool is None:
             return f"Error: tool '{tool_name}' not found."
         return await tool.invoke(tool_input)

@@ -7,36 +7,8 @@ ThinkingChunk / FinalChunk protocol.
 """
 from typing import AsyncIterator
 
-from langchain_core.tools import StructuredTool
-
-from client.agent_backend import AgentBackend, AgentChunk, ThinkingChunk, FinalChunk, ToolDefinition, extract_final_response
+from client.agent_backend import AgentBackend, AgentChunk, ThinkingChunk, FinalChunk, extract_final_response
 from client.constants import FINAL_RESPONSE_MARKER
-
-
-def to_tool_definitions(tools: list[StructuredTool]) -> list[ToolDefinition]:
-    """Convert LangChain StructuredTools to framework-agnostic ToolDefinitions."""
-    return [_to_tool_definition(t) for t in tools]
-
-
-def _to_tool_definition(tool: StructuredTool) -> ToolDefinition:
-    schema = (
-        tool.args_schema
-        if isinstance(tool.args_schema, dict)
-        else tool.args_schema.model_json_schema()
-    )
-
-    async def invoke(tool_input: dict) -> str:
-        try:
-            return str(await tool.ainvoke(tool_input))
-        except Exception as exc:
-            return f"Error calling tool '{tool.name}': {exc}"
-
-    return ToolDefinition(
-        name=tool.name,
-        description=tool.description or "",
-        schema=schema,
-        invoke=invoke,
-    )
 
 
 class LangChainAgentBackend(AgentBackend):

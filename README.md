@@ -30,24 +30,30 @@ This project provides a LangGraph MCP (Model Context Protocol) client for connec
 ```
 sample-langchain-mcp-client/
 ├── client/
-│   ├── client.py          # Authentication, MCP connection, and app wiring
-│   ├── agent_backend.py   # AgentBackend interface
-│   ├── langchain_agent.py # LangChain/LangGraph agent backend
-│   ├── bedrock_agent.py   # AWS boto3 Bedrock agent backend
-│   ├── llm_provider.py    # LangChain LLM provider selection
-│   ├── messages.py        # Messages and prompts
-│   └── oauth2.py          # Password grant OAuth provider
+│   ├── client.py               # Authentication, MCP connection, and app wiring
+│   ├── agent_backend.py        # AgentBackend interface and shared chunk types
+│   ├── mcp_client_backend.py   # MCPClientBackend interface and factory
+│   ├── constants.py            # Shared application constants
+│   ├── llm_provider.py         # LangChain LLM provider selection
+│   ├── messages.py             # System prompt and messages
+│   ├── oauth2.py               # Password grant OAuth provider
+│   ├── langchain/
+│   │   ├── mcp_client_backend.py  # LangChain MCP client backend
+│   │   └── agent_backend.py       # LangChain agent backend
+│   └── bedrock/
+│       ├── mcp_client_backend.py  # Bedrock MCP client backend (raw mcp.ClientSession)
+│       ├── agent_backend.py       # boto3 Bedrock agent backend
 ├── web/
-│   ├── web_ui_server.py   # Web server and HTTP request handling
-│   └── web_ui.html        # Frontend interface
-├── main.py                # Entry point script
-├── pyproject.toml         # Project dependencies
-└── README.md              # This file
+│   ├── web_ui_server.py        # Web server and HTTP request handling
+│   └── web_ui.html             # Frontend interface
+├── main.py                     # Entry point script
+├── pyproject.toml              # Project dependencies
+└── README.md                   # This file
 ```
 
 ### Agent backends
 
-The agent abstraction (`agent_backend.py`) allows switching LLM backends without changing any other code. Both backends function the same. This is just showcasing how each backend can be implemented.
+Two abstraction layers separate framework-specific code from the rest of the app. `MCPClientBackend` owns the MCP server connection, tool/prompt loading, and agent creation. `AgentBackend` owns the LLM reasoning loop. Both backends implement the same interfaces and are interchangeable at runtime via `AGENT_BACKEND`.
 
 | `AGENT_BACKEND` | `LLM_PROVIDER` | How it works |
 |---|---|---|
