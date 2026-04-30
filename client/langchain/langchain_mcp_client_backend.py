@@ -12,7 +12,7 @@ from langchain.agents import create_agent as create_lc_agent
 
 from client.mcp_client_backend import MCPClientBackend
 from client.agent_backend import AgentBackend
-from client.langchain.agent_backend import LangChainAgentBackend
+from client.langchain.langchain_agent_backend import LangChainAgentBackend
 from client.llm_provider import LLM_PROVIDER, get_llm_provider
 from client.messages import SYSTEM_PROMPT
 

@@ -15,7 +15,7 @@ from mcp.types import Prompt, TextContent
 from client.mcp_client_backend import MCPClientBackend
 from client.agent_backend import AgentBackend
 from client.bedrock.bedrock_tool import BedrockTool
-from client.bedrock.agent_backend import BedrockAgentBackend
+from client.bedrock.bedrock_agent_backend import BedrockAgentBackend
 from client.llm_provider import LLM_MODEL_ID, BEDROCK_REGION
 from client.messages import SYSTEM_PROMPT
 

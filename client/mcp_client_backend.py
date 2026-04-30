@@ -12,6 +12,8 @@ import httpx
 from mcp.types import Prompt
 
 from client.agent_backend import AgentBackend
+from client.bedrock.bedrock_mcp_client_backend import BedrockMCPClientBackend
+from client.langchain.langchain_mcp_client_backend import LangChainMCPClientBackend
 
 
 class MCPClientBackend(ABC):
@@ -80,7 +82,5 @@ def create_mcp_client_backend(
 ) -> MCPClientBackend:
     """Instantiate the correct MCPClientBackend for the given agent_backend."""
     if agent_backend == "boto3":
-        from client.bedrock.mcp_client_backend import BedrockMCPClientBackend
         return BedrockMCPClientBackend(url, auth)
-    from client.langchain.mcp_client_backend import LangChainMCPClientBackend
     return LangChainMCPClientBackend(url, auth)

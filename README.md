@@ -38,11 +38,11 @@ sample-langchain-mcp-client/
 │   ├── messages.py             # System prompt and messages
 │   ├── oauth2.py               # Password grant OAuth provider
 │   ├── langchain/
-│   │   ├── mcp_client_backend.py  # LangChain MCP client backend
-│   │   └── agent_backend.py       # LangChain agent backend
+│   │   ├── langchain_mcp_client_backend.py  # LangChain MCP client backend
+│   │   └── langchain_agent_backend.py       # LangChain/LangGraph agent backend
 │   └── bedrock/
-│       ├── mcp_client_backend.py  # Bedrock MCP client backend (raw mcp.ClientSession)
-│       ├── agent_backend.py       # boto3 Bedrock agent backend
+│       ├── bedrock_mcp_client_backend.py    # Bedrock MCP client backend (raw mcp.ClientSession)
+│       ├── bedrock_agent_backend.py         # boto3 Bedrock agent backend
 ├── web/
 │   ├── web_ui_server.py        # Web server and HTTP request handling
 │   └── web_ui.html             # Frontend interface
