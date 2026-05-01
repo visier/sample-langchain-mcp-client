@@ -3,20 +3,16 @@ import os
 import traceback
 import webbrowser
 import logging
-import json
-from functools import partial
 from threading import Thread
 
+import httpx
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.shared.auth import OAuthToken, OAuthClientInformationFull, ProtectedResourceMetadata
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain.agents import create_agent
-from mcp.types import Prompt
 from pydantic import AnyHttpUrl
-from client.llm_provider import LLM_PROVIDER, get_llm_provider, get_current_model_name
+
+from client.llm_provider import LLM_PROVIDER, LLM_MODEL_ID, get_current_model_name
+from client.mcp_client_backend import create_mcp_client_backend
 from web.web_ui_server import WebUIServer
-from .messages import SYSTEM_PROMPT
 from .oauth2 import OAuthPasswordGrantClientProvider
 
 # Check for required environment variables
@@ -33,6 +29,9 @@ VISIER_PASSWORD = os.environ.get("VISIER_PASSWORD")
 VISIER_TENANT_VANITY = os.environ.get("VISIER_TENANT_VANITY")
 
 USE_PASSWORD_GRANT = (VISIER_USERNAME is not None and VISIER_PASSWORD is not None)
+
+AGENT_BACKEND = os.environ.get("AGENT_BACKEND", "langchain").lower()
+LANGCHAIN_VERBOSE = os.environ.get("LANGCHAIN_VERBOSE", "false").lower() == "true"
 
 OAUTH_CLIENT_STATIC_METADATA = OAuthClientInformationFull(
     client_name="LangChain MCP client for Visier MCP server",
@@ -52,80 +51,26 @@ available_prompts = []
 ui_server = WebUIServer()
 
 def set_captured_code(code, state):
-    """Callback function to set the captured OAuth code"""
     global captured_code, captured_state
     captured_code = code
     captured_state = state
 
 def get_agent():
-    """Callback function to get the agent"""
     return app_agent
 
 def get_server_url():
-    """Callback function to get the server URL"""
     return VISIER_MCP_SERVER_URL
 
 def get_model_name():
-    """Callback function to get the current model name"""
+    if AGENT_BACKEND == "boto3":
+        return f"Bedrock ({LLM_MODEL_ID})"
     return f"{LLM_PROVIDER} ({get_current_model_name()})"
 
 def get_tools():
-    """Callback function to get the available tools list with full details"""
-    tools_details = []
-    for tool in available_tools:
-        tool_info = {
-            'name': tool.name,
-            'description': getattr(tool, 'description', 'No description available'),
-            'args': getattr(tool, 'args', {}),
-            'args_schema': None
-        }   
-        if hasattr(tool, 'args_schema') and tool.args_schema:
-            try:
-                tool_info['args_schema'] = json.loads(json.dumps(tool.args_schema, default=str))
-            except Exception as e:
-                tool_info['args_schema'] = str(tool.args_schema)
-
-        tools_details.append(tool_info)
-
-    return tools_details
+    return available_tools
 
 def get_prompts():
-    """Callback function to get the available prompts list with full details"""
-    prompts_details = []
-    for prompt in available_prompts:
-        args = getattr(prompt, 'arguments', None) or []
-        arguments_schema = [
-            {
-                'name': getattr(a, 'name', ''),
-                'description': getattr(a, 'description', None),
-                'required': getattr(a, 'required', None),
-            }
-            for a in args
-        ]
-        prompt_info = {
-            'name': prompt.name,
-            'description': getattr(prompt, 'description', 'No description available'),
-            'arguments': arguments_schema,
-        }
-        prompts_details.append(prompt_info)
-    return prompts_details
-
-
-async def get_prompt_messages_async(
-    client: MultiServerMCPClient,
-    prompt_name: str,
-    arguments: dict[str, str] | None = None,
-) -> list[str]:
-    """Load prompt content from MCP server and return list of {role, content} for the agent."""
-    if not client or not prompt_name:
-        return []
-    arguments = arguments or {}
-    messages = await client.get_prompt("visier-service", prompt_name, arguments=arguments)
-    result = []
-    for m in messages:
-        content = getattr(m, "content", "") or ""
-        result.append(content)
-    return result
+    return available_prompts
 
 
 ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts)
@@ -144,7 +89,7 @@ class InMemoryTokenStorage(TokenStorage):
         return OAUTH_CLIENT_STATIC_METADATA
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        self.client_info = client_info 
+        self.client_info = client_info
 
 def start_local_server():
     ui_server.start_oauth_server()
@@ -152,33 +97,45 @@ def start_local_server():
 async def automated_callback_handler() -> tuple[str, str | None]:
     """Captures code AND state to satisfy the security check."""
     Thread(target=start_local_server, daemon=True).start()
-    
     print("Authenticating and fetching tools from MCP server...")
     while captured_code is None:
-        await asyncio.sleep(0.1)  # Faster polling for OAuth callback
+        await asyncio.sleep(0.1)
     return captured_code, captured_state
 
 async def handle_redirect(auth_url: str) -> None:
     print(f"\n Opening browser: {auth_url}")
     webbrowser.open(auth_url)
 
-async def load_all_prompts_from_server(
-    client: MultiServerMCPClient,
-    server_name: str,
-) -> list[Prompt]:
-    """Load all prompts from an MCP server.
 
-    Args:
-        client: The MultiServerMCPClient instance.
-        server_name: Name of the server to load prompts from (e.g. "visier-service").
+def _create_oauth_provider() -> httpx.Auth:
+    """Create the appropriate OAuth provider based on environment config."""
+    if USE_PASSWORD_GRANT:
+        print("Starting MCP client with OAuth Password Grant authentication...")
+        return OAuthPasswordGrantClientProvider(
+            server_url=VISIER_MCP_SERVER_URL,
+            username=VISIER_USERNAME,
+            password=VISIER_PASSWORD,
+            client_id=OAUTH_CLIENT_STATIC_METADATA.client_id,
+            client_secret=OAUTH_CLIENT_STATIC_METADATA.client_secret,
+            storage=InMemoryTokenStorage(),
+            visier_tenant_vanity=VISIER_TENANT_VANITY
+        )
 
-    Returns:
-        A dict mapping each prompt name to its list of LangChain messages
-        (HumanMessage | AIMessage).
-    """
-    async with client.session(server_name) as session:
-        result = await session.list_prompts()
-        return result.prompts
+    print("Starting MCP client with OAuth Authorization Code Grant authentication...")
+    provider = OAuthClientProvider(
+        server_url=VISIER_MCP_SERVER_URL,
+        client_metadata=OAUTH_CLIENT_STATIC_METADATA,
+        storage=InMemoryTokenStorage(),
+        redirect_handler=handle_redirect,
+        callback_handler=automated_callback_handler
+    )
+    auth_server_url = VISIER_MCP_SERVER_URL.rstrip("/") + "/hr/oauth2"
+    provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+        resource=AnyHttpUrl(VISIER_MCP_SERVER_URL),
+        authorization_servers=[AnyHttpUrl(auth_server_url)]
+    )
+    return provider
+
 
 # --- MAIN ---
 async def main():
@@ -188,76 +145,33 @@ async def main():
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
-    if USE_PASSWORD_GRANT:
-        print("Starting MCP client with OAuth Password Grant authentication...")
-        oauth_provider = OAuthPasswordGrantClientProvider(
-            server_url=VISIER_MCP_SERVER_URL,
-            username=VISIER_USERNAME,
-            password=VISIER_PASSWORD,
-            client_id=OAUTH_CLIENT_STATIC_METADATA.client_id,
-            client_secret=OAUTH_CLIENT_STATIC_METADATA.client_secret,
-            storage=InMemoryTokenStorage(),
-            visier_tenant_vanity=VISIER_TENANT_VANITY
-        )
-    else:
-        print("Starting MCP client with OAuth Authorization Code Grant authentication...")
-        oauth_provider = OAuthClientProvider(
-            server_url=VISIER_MCP_SERVER_URL,
-            client_metadata=OAUTH_CLIENT_STATIC_METADATA,
-            storage=InMemoryTokenStorage(),
-            redirect_handler=handle_redirect,
-            callback_handler=automated_callback_handler
-        )
 
-        auth_server_url=VISIER_MCP_SERVER_URL.rstrip("/") + "/hr/oauth2"
-        oauth_provider.context.protected_resource_metadata = ProtectedResourceMetadata(
-            resource=AnyHttpUrl(VISIER_MCP_SERVER_URL),
-            authorization_servers=[AnyHttpUrl(auth_server_url)]
-        )
-
-    client = MultiServerMCPClient({
-        "visier-service": {
-            "transport": "streamable_http",
-            "url": VISIER_MCP_SERVER_URL,
-            "auth": oauth_provider
-        }
-    })
+    oauth_provider = _create_oauth_provider()
+    backend = create_mcp_client_backend(VISIER_MCP_SERVER_URL, oauth_provider, AGENT_BACKEND)
 
     try:
-        mcp_tools = await client.get_tools()
-        available_tools.extend(mcp_tools)
+        async with backend:
+            available_tools.extend(backend.tool_definitions())
+            available_prompts.extend(backend.prompt_definitions())
 
-        prompts_result = await load_all_prompts_from_server(client, "visier-service")
-        available_prompts.extend(prompts_result)
+            print(f"\n Authenticated. Available MCP Tools: {[t['name'] for t in available_tools]}")
+            print(f"\n Available MCP Prompts: {[p['name'] for p in available_prompts]}")
 
-        print(f"\n Authenticated. Available MCP Tools: {[t.name for t in mcp_tools]}")
-        print(f"\n Available MCP Prompts: {[p.name for p in available_prompts]}")
+            app_agent = backend.create_agent(verbose=LANGCHAIN_VERBOSE)
 
-        do_verbose_logging = os.environ.get("LANGCHAIN_VERBOSE", "False").lower() == "true"
-        app_agent = create_agent(
-            get_llm_provider(), 
-            mcp_tools,
-            system_prompt=SYSTEM_PROMPT,
-            debug=do_verbose_logging
-        )
+            ui_server.set_callbacks(
+                set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts,
+                get_prompt_messages_async=backend.get_prompt_messages
+            )
 
-        ui_server.set_callbacks(
-            set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts,
-            get_prompt_messages_async=partial(get_prompt_messages_async, client)
-        )
+            ui_server.start_ui_in_background()
+            await asyncio.sleep(0.1)
+            ui_server.open_ui()
 
-        # Start the web UI after successful authentication
-        ui_server.start_ui_in_background()
-        await asyncio.sleep(0.1)  # Just a tiny delay to let the server start
-        ui_server.open_ui()
-
-        try:
             while True:
-                await asyncio.sleep(5)  # Longer sleep since this is just keepalive
-        except KeyboardInterrupt:
-            print("\nShutting down...")
-        
+                await asyncio.sleep(5) # Longer sleep since this is just keepalive
+    except KeyboardInterrupt:
+        print("\nShutting down...")
     except Exception:
         print("\nDetailed Error Traceback:")
         traceback.print_exc()
