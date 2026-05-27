@@ -57,7 +57,7 @@ Two abstraction layers separate framework-specific code from the rest of the app
 
 | `AGENT_BACKEND` | `LLM_PROVIDER` | How it works |
 |---|---|---|
-| `langchain` (default) | `ollama` / `anthropic` / `bedrock` / `openai` | LangGraph react-agent loop via LangChain |
+| `langchain` (default) | `ollama` / `anthropic` / `bedrock` / `openai` / `azure_openai` | LangGraph react-agent loop via LangChain |
 | `boto3` | *(always bedrock)* | Direct AWS boto3 Converse API loop, no LangChain in the agent loop |
 
 ## Prerequisites
@@ -106,7 +106,7 @@ Before running the client, you must set the following environment variables:
 
 #### `LLM_PROVIDER`
 **Optional**: Choose your AI provider (only used when `AGENT_BACKEND=langchain`)
-- **Options**: `ollama`, `anthropic`, `bedrock`, `openai`
+- **Options**: `ollama`, `anthropic`, `bedrock`, `openai`, `azure_openai`
 - **Default**: `ollama`
 - **Example**: `export LLM_PROVIDER="bedrock"`
 
@@ -117,6 +117,7 @@ Before running the client, you must set the following environment variables:
   - Anthropic: `claude-3-5-sonnet-20241022`
   - Bedrock (LangChain or boto3): `anthropic.claude-3-5-sonnet-20241022-v2:0`
   - OpenAI: `gpt-4-turbo`
+  - Azure OpenAI: **the deployment name** you configured on your Azure OpenAI resource (not the underlying model name). Required when `LLM_PROVIDER=azure_openai`.
 
 ### AWS Bedrock Variables
 
@@ -148,6 +149,23 @@ No additional env var is needed beyond region.
 **Required for OpenAI**: OpenAI API key
 - **Description**: Your OpenAI API key for GPT model access
 - **Note**: Required when using `LLM_PROVIDER=openai`
+
+### Azure OpenAI Variables
+
+#### `AZURE_OPENAI_API_KEY`
+**Required for Azure OpenAI**: Azure OpenAI API key
+- **Description**: API key for your Azure OpenAI resource
+- **Note**: Required when using `LLM_PROVIDER=azure_openai`
+
+#### `AZURE_OPENAI_ENDPOINT`
+**Required for Azure OpenAI**: Azure OpenAI resource endpoint
+- **Description**: Endpoint URL of your Azure OpenAI resource, typically `https://<your-resource>.openai.azure.com` (an APIM/proxy URL also works)
+- **Note**: Required when using `LLM_PROVIDER=azure_openai`
+
+#### `AZURE_OPENAI_API_VERSION`
+**Optional**: Azure OpenAI REST API version
+- **Default**: `2024-10-21`
+- **Description**: Azure pins API versions explicitly; bump this if you need newer features
 
 ## Setup Instructions
 
@@ -222,6 +240,17 @@ export OPENAI_API_KEY="sk-your-openai-api-key"
 
 # Optional: Use specific OpenAI model
 export LLM_MODEL_ID="gpt-5.3-codex"
+```
+
+#### Option F: Azure OpenAI
+```bash
+export LLM_PROVIDER="azure_openai"
+export AZURE_OPENAI_API_KEY="your-azure-openai-api-key"
+export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com"  # your Azure OpenAI resource endpoint (or APIM/proxy URL)
+export LLM_MODEL_ID="your-deployment-name"  # the deployment name you configured on the Azure resource
+
+# Optional
+export AZURE_OPENAI_API_VERSION="2024-10-21"  # defaults to 2024-10-21
 ```
 
 ### Advanced Configuration

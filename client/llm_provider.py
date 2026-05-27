@@ -2,7 +2,7 @@ import os
 
 from langchain_aws import ChatBedrockConverse
 from langchain_anthropic import ChatAnthropic
-from langchain_openai import ChatOpenAI
+from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from langchain_ollama import ChatOllama
 from langchain_core.language_models import BaseChatModel
 
@@ -18,6 +18,10 @@ HAS_BEDROCK = os.environ.get("AWS_BEARER_TOKEN_BEDROCK") is not None
 BEDROCK_REGION = os.environ.get("AWS_REGION_BEDROCK", "us-west-2")
 
 HAS_OPENAI = os.environ.get("OPENAI_API_KEY") is not None
+
+HAS_AZURE_OPENAI = os.environ.get("AZURE_OPENAI_API_KEY") is not None
+AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_API_VERSION = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
 
 current_model_name = None
 
@@ -54,6 +58,21 @@ def get_llm_provider() -> BaseChatModel:
         print(f"Creating OpenAI chat agent with model {current_model_name}")
         return ChatOpenAI(
             model=current_model_name,
+            temperature=0
+        )
+    if LLM_PROVIDER == "azure_openai":
+        if not HAS_AZURE_OPENAI:
+            raise ValueError("Selected Azure OpenAI as provider but AZURE_OPENAI_API_KEY environment variable is not set.")
+        if not AZURE_OPENAI_ENDPOINT:
+            raise ValueError("Selected Azure OpenAI as provider but AZURE_OPENAI_ENDPOINT environment variable is not set.")
+        if not LLM_MODEL_ID:
+            raise ValueError("Selected Azure OpenAI as provider but LLM_MODEL_ID (your Azure OpenAI deployment name) is not set.")
+        current_model_name = LLM_MODEL_ID
+        print(f"Creating Azure OpenAI chat agent with deployment {current_model_name}")
+        return AzureChatOpenAI(
+            azure_deployment=current_model_name,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_version=AZURE_OPENAI_API_VERSION,
             temperature=0
         )
     if LLM_PROVIDER == "ollama":
