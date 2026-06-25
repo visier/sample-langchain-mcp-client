@@ -73,6 +73,25 @@ body {
     text-decoration: underline;
 }
 
+.btn-logout {
+    margin-left: auto;
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--visier-blue);
+    border-radius: 6px;
+    color: var(--visier-blue);
+    background: transparent;
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-logout:hover {
+    background: var(--visier-blue);
+    color: var(--visier-white);
+}
+
 .container {
     max-width: 95vw;
     margin: 0 auto;
