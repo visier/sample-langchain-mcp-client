@@ -86,7 +86,8 @@ def request_logout():
     auth_redirect_url = None
     captured_code = None
     captured_state = None
-
+    available_tools.clear()
+    available_prompts.clear()
 
 ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts, get_auth_url_func=get_auth_url, request_logout_func=request_logout)
 
@@ -171,8 +172,6 @@ async def main(skip_browser_open: bool = False):
 
     while True:
         logout_requested = False
-        available_tools.clear()
-        available_prompts.clear()
 
         try:
             oauth_provider = _create_oauth_provider()
