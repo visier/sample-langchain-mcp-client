@@ -269,6 +269,12 @@ If your Visier tenant is hosted locally:
 export VISIER_TENANT_VANITY="a1b2c"
 ```
 
+#### Disable Auto Browser Launch
+By default the app opens your browser to the OAuth login page automatically. Pass `--skip-browser-open` to suppress this — useful in CI pipelines or headless environments where you navigate to `http://localhost:8001` to log in instead:
+```bash
+python main.py --skip-browser-open
+```
+
 #### Debug Logging
 Enable verbose LLM interaction logging by setting the langchain variable:
 ```bash
@@ -281,9 +287,13 @@ export LANGCHAIN_VERBOSE="true"
    ```bash
    python main.py
    ```
+   To disable automatic browser launch (e.g. in CI/headless environments):
+   ```bash
+   python main.py --skip-browser-open
+   ```
 
 2. **Access Web UI**:
-   - The web interface will automatically open in your browser
+   - The web interface will automatically open in your browser after login
    - If not, navigate to `http://localhost:8001`
    - You can now interact with the Visier agent through the web interface
 

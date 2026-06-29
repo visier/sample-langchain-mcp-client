@@ -48,12 +48,19 @@ captured_state = None
 app_agent = None
 available_tools = []
 available_prompts = []
+auth_redirect_url = None
+logout_requested = False
+_skip_browser_open = False
 ui_server = WebUIServer()
 
 def set_captured_code(code, state):
-    global captured_code, captured_state
+    global captured_code, captured_state, auth_redirect_url
     captured_code = code
     captured_state = state
+    auth_redirect_url = None  # clear once auth code received
+
+def get_auth_url():
+    return auth_redirect_url
 
 def get_agent():
     return app_agent
@@ -72,8 +79,17 @@ def get_tools():
 def get_prompts():
     return available_prompts
 
+def request_logout():
+    global logout_requested, app_agent, auth_redirect_url, captured_code, captured_state
+    logout_requested = True
+    app_agent = None
+    auth_redirect_url = None
+    captured_code = None
+    captured_state = None
+    available_tools.clear()
+    available_prompts.clear()
 
-ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts)
+ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts, get_auth_url_func=get_auth_url, request_logout_func=request_logout)
 
 class InMemoryTokenStorage(TokenStorage):
     def __init__(self):
@@ -97,14 +113,19 @@ def start_local_server():
 async def automated_callback_handler() -> tuple[str, str | None]:
     """Captures code AND state to satisfy the security check."""
     Thread(target=start_local_server, daemon=True).start()
-    print("Authenticating and fetching tools from MCP server...")
+    print("Authorize in your browser to continue...")
     while captured_code is None:
         await asyncio.sleep(0.1)
     return captured_code, captured_state
 
 async def handle_redirect(auth_url: str) -> None:
-    print(f"\n Opening browser: {auth_url}")
-    webbrowser.open(auth_url)
+    global auth_redirect_url
+    auth_redirect_url = auth_url
+    if not _skip_browser_open:
+        print(f"\nOpening browser: {auth_url}")
+        webbrowser.open(auth_url)
+    else:
+        print(f"\nAuth URL ready (open http://localhost:8001 to log in): {auth_url}")
 
 
 def _create_oauth_provider() -> httpx.Auth:
@@ -138,43 +159,53 @@ def _create_oauth_provider() -> httpx.Auth:
 
 
 # --- MAIN ---
-async def main():
-    global app_agent
+async def main(skip_browser_open: bool = False):
+    global app_agent, logout_requested, _skip_browser_open
+    _skip_browser_open = skip_browser_open
 
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
-    oauth_provider = _create_oauth_provider()
-    backend = create_mcp_client_backend(VISIER_MCP_SERVER_URL, oauth_provider, AGENT_BACKEND)
+    ui_server.start_ui_in_background()
 
-    try:
-        async with backend:
-            available_tools.extend(backend.tool_definitions())
-            available_prompts.extend(backend.prompt_definitions())
+    while True:
+        logout_requested = False
 
-            print(f"\n Authenticated. Available MCP Tools: {[t['name'] for t in available_tools]}")
-            print(f"\n Available MCP Prompts: {[p['name'] for p in available_prompts]}")
+        try:
+            oauth_provider = _create_oauth_provider()
+            backend = create_mcp_client_backend(VISIER_MCP_SERVER_URL, oauth_provider, AGENT_BACKEND)
+            async with backend:
+                available_tools.extend(backend.tool_definitions())
+                available_prompts.extend(backend.prompt_definitions())
 
-            app_agent = backend.create_agent(verbose=LANGCHAIN_VERBOSE)
+                print(f"\n Authenticated. Available MCP Tools: {[t['name'] for t in available_tools]}")
+                print(f"\n Available MCP Prompts: {[p['name'] for p in available_prompts]}")
 
-            ui_server.set_callbacks(
-                set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts,
-                get_prompt_messages_async=backend.get_prompt_messages
-            )
+                app_agent = backend.create_agent(verbose=LANGCHAIN_VERBOSE)
 
-            ui_server.start_ui_in_background()
-            await asyncio.sleep(0.1)
-            ui_server.open_ui()
+                ui_server.set_callbacks(
+                    set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts,
+                    get_prompt_messages_async=backend.get_prompt_messages,
+                    get_auth_url_func=get_auth_url,
+                    request_logout_func=request_logout,
+                )
 
-            while True:
-                await asyncio.sleep(5) # Longer sleep since this is just keepalive
-    except KeyboardInterrupt:
-        print("\nShutting down...")
-    except Exception:
-        print("\nDetailed Error Traceback:")
-        traceback.print_exc()
+                ui_server.open_ui()
+
+                while not logout_requested:
+                    await asyncio.sleep(1)
+
+        except KeyboardInterrupt:
+            print("\nShutting down...")
+            return
+        except Exception:
+            print("\nDetailed Error Traceback:")
+            traceback.print_exc()
+            return
+
+        print("\nLogging out, re-authenticating...")
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -29,7 +29,31 @@ class WebUIHandler(BaseHTTPRequestHandler):
             else:
                 self.wfile.write(b"<h1>Login Failed</h1><p>No code found.</p>")
         
+        elif path == '/logout':
+            if hasattr(WebUIHandler, 'request_logout'):
+                WebUIHandler.request_logout()
+            self.send_response(302)
+            self.send_header('Location', '/')
+            self.end_headers()
+
         elif path == '/' or path == '/index.html':
+            agent = WebUIHandler.get_agent() if hasattr(WebUIHandler, 'get_agent') else None
+            if agent is None:
+                auth_url = WebUIHandler.get_auth_url() if hasattr(WebUIHandler, 'get_auth_url') else None
+                if auth_url:
+                    # Auth in progress — redirect to OAuth
+                    self.send_response(302)
+                    self.send_header('Location', auth_url)
+                    self.end_headers()
+                else:
+                    # Auth URL not ready yet — show waiting page that polls
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    self.wfile.write(b'<html><head><meta http-equiv="refresh" content="1"></head>'
+                                     b'<body>Authenticating, please wait...</body></html>')
+                return
+
             # Serve the web UI
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
@@ -236,6 +260,8 @@ class WebUIServer:
         get_tools_func=None,
         get_prompts_func=None,
         get_prompt_messages_async=None,
+        get_auth_url_func=None,
+        request_logout_func=None,
     ):
         """Set the callback functions for OAuth, agent access, server URL, model name, tools, and prompt resolution."""
         WebUIHandler.callback_handler = callback_handler
@@ -250,6 +276,10 @@ class WebUIServer:
             WebUIHandler.get_prompts = get_prompts_func
         if get_prompt_messages_async is not None:
             WebUIHandler.get_prompt_messages_async = get_prompt_messages_async
+        if get_auth_url_func is not None:
+            WebUIHandler.get_auth_url = get_auth_url_func
+        if request_logout_func is not None:
+            WebUIHandler.request_logout = request_logout_func
 
     def start_oauth_server(self):
         """Start the OAuth callback server"""
