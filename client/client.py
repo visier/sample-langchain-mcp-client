@@ -192,8 +192,6 @@ async def main(skip_browser_open: bool = False):
                     request_logout_func=request_logout,
                 )
 
-                ui_server.open_ui()
-
                 while not logout_requested:
                     await asyncio.sleep(1)
 

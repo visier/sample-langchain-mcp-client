@@ -15,18 +15,18 @@ class WebUIHandler(BaseHTTPRequestHandler):
         path = parsed_url.path
         
         if path == '/callback':
-            # Handle OAuth callback
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            
             query = parse_qs(parsed_url.query)
             if "code" in query:
-                # Store captured code in the global callback function
                 if hasattr(WebUIHandler, 'callback_handler'):
                     WebUIHandler.callback_handler(query["code"][0], query.get("state", [None])[0])
-                self.wfile.write(b"<h1>Login Successful!</h1><p>Return to your terminal.</p>")
+                ui_port = getattr(WebUIHandler, 'ui_port', 8001)
+                self.send_response(302)
+                self.send_header('Location', f'http://localhost:{ui_port}')
+                self.end_headers()
             else:
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
                 self.wfile.write(b"<h1>Login Failed</h1><p>No code found.</p>")
         
         elif path == '/logout':
@@ -291,11 +291,6 @@ class WebUIServer:
         server = HTTPServer(('localhost', self.ui_port), WebUIHandler)
         print(f"\nWeb UI available at: http://localhost:{self.ui_port}")
         server.serve_forever()
-        
-    def open_ui(self):
-        """Open the UI in the browser"""
-        ui_url = f"http://localhost:{self.ui_port}"
-        webbrowser.open(ui_url)
         
     def start_ui_in_background(self):
         """Start the UI server in a background thread"""
