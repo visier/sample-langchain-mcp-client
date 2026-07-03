@@ -80,8 +80,9 @@ def get_prompts():
     return available_prompts
 
 def request_logout():
-    global logout_requested, app_agent, auth_redirect_url, captured_code, captured_state
+    global logout_requested, app_agent, auth_redirect_url, captured_code, captured_state, _skip_browser_open
     logout_requested = True
+    _skip_browser_open = True
     app_agent = None
     auth_redirect_url = None
     captured_code = None
