@@ -266,6 +266,7 @@ class WebUIServer:
         """Set the callback functions for OAuth, agent access, server URL, model name, tools, and prompt resolution."""
         WebUIHandler.callback_handler = callback_handler
         WebUIHandler.get_agent = get_agent_func
+        WebUIHandler.ui_port = self.ui_port
         if get_server_url_func:
             WebUIHandler.get_server_url = get_server_url_func
         if get_model_name_func:
