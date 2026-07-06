@@ -126,7 +126,7 @@ async def handle_redirect(auth_url: str) -> None:
         print(f"\nOpening browser: {auth_url}")
         webbrowser.open(auth_url)
     else:
-        print(f"\nAuth URL ready (open http://localhost:8001 to log in): {auth_url}")
+        print(f"\nAuth URL ready (open http://localhost:{ui_server.ui_port} to log in): {auth_url}")
 
 
 def _create_oauth_provider() -> httpx.Auth:
