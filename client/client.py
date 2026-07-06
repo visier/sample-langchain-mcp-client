@@ -80,8 +80,9 @@ def get_prompts():
     return available_prompts
 
 def request_logout():
-    global logout_requested, app_agent, auth_redirect_url, captured_code, captured_state
+    global logout_requested, app_agent, auth_redirect_url, captured_code, captured_state, _skip_browser_open
     logout_requested = True
+    _skip_browser_open = True
     app_agent = None
     auth_redirect_url = None
     captured_code = None
@@ -125,7 +126,7 @@ async def handle_redirect(auth_url: str) -> None:
         print(f"\nOpening browser: {auth_url}")
         webbrowser.open(auth_url)
     else:
-        print(f"\nAuth URL ready (open http://localhost:8001 to log in): {auth_url}")
+        print(f"\nAuth URL ready (open http://localhost:{ui_server.ui_port} to log in): {auth_url}")
 
 
 def _create_oauth_provider() -> httpx.Auth:
@@ -191,8 +192,6 @@ async def main(skip_browser_open: bool = False):
                     get_auth_url_func=get_auth_url,
                     request_logout_func=request_logout,
                 )
-
-                ui_server.open_ui()
 
                 while not logout_requested:
                     await asyncio.sleep(1)

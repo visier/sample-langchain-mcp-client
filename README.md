@@ -270,7 +270,7 @@ export VISIER_TENANT_VANITY="a1b2c"
 ```
 
 #### Disable Auto Browser Launch
-By default the app opens your browser to the OAuth login page automatically. Pass `--skip-browser-open` to suppress this — useful in CI pipelines or headless environments where you navigate to `http://localhost:8001` to log in instead:
+By default the app opens your browser to the OAuth login page automatically. Pass `--skip-browser-open` to suppress this — useful in CI pipelines or headless environments. Navigate to `http://localhost:8001` and you will be redirected to the OAuth login page:
 ```bash
 python main.py --skip-browser-open
 ```
@@ -293,8 +293,8 @@ export LANGCHAIN_VERBOSE="true"
    ```
 
 2. **Access Web UI**:
-   - The web interface will automatically open in your browser after login
-   - If not, navigate to `http://localhost:8001`
+   - After completing OAuth login, your browser is redirected to `http://localhost:8001` automatically
+   - If not, navigate to `http://localhost:8001` manually
    - You can now interact with the Visier agent through the web interface
 
 ## Using the Web Interface
@@ -331,10 +331,11 @@ The system operates in several stages:
 4. Both backends stream intermediate reasoning steps and the final response to the web UI
 
 ### 3. Web Interface
-1. Starts a web server on `http://localhost:8001` 
-2. Automatically opens the web UI in your default browser
+1. Starts a web server on `http://localhost:8001`
+2. After OAuth login completes, the callback redirects to `http://localhost:8001` in the same tab
 3. Provides real-time interaction with the AI agent
 4. Shows both agent reasoning and final responses
+5. Logging out redirects back to the OAuth login page in the same tab — no new browser window
 
 ### 4. Query Processing
 When you ask a question, or pick a prompt from a template:
@@ -349,8 +350,8 @@ The authentication process:
 1. Start a local server on `http://localhost:8000/callback`
 2. Open your browser to the Visier OAuth authorization page
 3. Log in and authorize the application in Visier
-4. Redirect back to the local server with authorization code
-5. Automatically exchange the code for access tokens
+4. Redirect back to `http://localhost:8000/callback` with the authorization code
+5. Automatically exchange the code for access tokens, then redirect to `http://localhost:8001`
 6. Connect to the Visier MCP server and retrieve available tools
 
 ## Web UI Ports
@@ -400,7 +401,7 @@ The authentication process:
 - Ensure ports 8000 and 8001 are available locally
 
 ### Web UI Issues
-- If the UI doesn't auto-open, manually navigate to `http://localhost:8001`
+- If not redirected after login, manually navigate to `http://localhost:8001`
 - Check browser console for JavaScript errors
 - Verify `web_ui.html` file exists in the project directory
 
