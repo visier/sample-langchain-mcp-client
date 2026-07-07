@@ -80,13 +80,15 @@ def get_prompts():
     return available_prompts
 
 def request_logout():
-    global logout_requested, app_agent, auth_redirect_url, captured_code, captured_state, _skip_browser_open
+    global logout_requested, app_agent, _skip_browser_open
     logout_requested = True
     _skip_browser_open = True
     app_agent = None
-    auth_redirect_url = None
-    captured_code = None
-    captured_state = None
+    # Deliberately not clearing auth_redirect_url/captured_code/captured_state: if an
+    # authorization is currently pending, clearing it here would orphan that attempt
+    # with nothing left to regenerate it. automated_callback_handler() already resets
+    # captured_code/captured_state for each new wait it starts, so leaving a pending
+    # attempt's state alone is safe - it'll resolve (or get superseded) on its own.
     available_tools.clear()
     available_prompts.clear()
 
