@@ -113,6 +113,11 @@ def start_local_server():
 
 async def automated_callback_handler() -> tuple[str, str | None]:
     """Captures code AND state to satisfy the security check."""
+    global captured_code, captured_state
+    # Reset any leftover code/state from a previous, already-completed attempt so this
+    # wait can't return stale values instead of waiting for a genuinely new callback.
+    captured_code = None
+    captured_state = None
     Thread(target=start_local_server, daemon=True).start()
     print("Authorize in your browser to continue...")
     while captured_code is None:
@@ -202,7 +207,9 @@ async def main(skip_browser_open: bool = False):
         except Exception:
             print("\nDetailed Error Traceback:")
             traceback.print_exc()
-            return
+            print("\nRetrying authentication...")
+            await asyncio.sleep(1)
+            continue
 
         print("\nLogging out, re-authenticating...")
 
