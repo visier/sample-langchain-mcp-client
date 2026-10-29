@@ -22,6 +22,7 @@ This project provides a LangGraph MCP (Model Context Protocol) client for connec
 - **OAuth 2.0 Authentication**: Secure connection to your Visier tenant
 - **Flexible AI Backend**: See [LLM configuration section](#llm-setup-choose-one)
 - **Agent Transparency**: See both the agent's streamed thinking process and final responses
+- **MCP Apps**: UI-enabled tools render a sandboxed app above the existing response boxes
 - **Visier Integration**: Direct access to your Visier analytics through MCP tools
 - **Free Option**: Works completely free with local Ollama models
 
@@ -115,7 +116,7 @@ Before running the client, you must set the following environment variables:
 - **Examples**:
   - Ollama: `qwen2.5`, `llama3.1`
   - Anthropic: `claude-3-5-sonnet-20241022`
-  - Bedrock (LangChain or boto3): `anthropic.claude-3-5-sonnet-20241022-v2:0`
+  - Bedrock (LangChain or boto3): `us.amazon.nova-2-lite-v1:0`
   - OpenAI: `gpt-4-turbo`
   - Azure OpenAI: **the deployment name** you configured on your Azure OpenAI resource (not the underlying model name). Required when `LLM_PROVIDER=azure_openai`.
 
@@ -207,7 +208,7 @@ Uses the inline boto3 Converse API — no LangChain in the agent loop.
 ```bash
 export AGENT_BACKEND="boto3"
 export AWS_REGION_BEDROCK="us-west-2"              # Optional, defaults to us-west-2
-export LLM_MODEL_ID="anthropic.claude-3-5-sonnet-20241022-v2:0"
+export LLM_MODEL_ID="us.amazon.nova-2-lite-v1:0"
 
 # AWS credentials are resolved from ~/.aws/credentials for boto3 SDK. No AWS_BEARER_TOKEN_BEDROCK needed.
 ```
@@ -221,7 +222,7 @@ export AWS_BEARER_TOKEN_BEDROCK="your-bearer-token"
 export AWS_REGION_BEDROCK="us-west-2"  # Optional, defaults to us-west-2
 
 # Optional: Use specific Bedrock model
-export LLM_MODEL_ID="anthropic.claude-3-5-sonnet-20241022-v2:0"
+export LLM_MODEL_ID="us.amazon.nova-2-lite-v1:0"
 ```
 
 #### Option D: Anthropic Direct (Premium Cloud)

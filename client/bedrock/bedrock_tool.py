@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -8,4 +9,4 @@ class BedrockTool:
     name: str
     description: str
     schema: dict
-    invoke: Callable[[dict], Awaitable[str]]
+    invoke: Callable[[dict], Awaitable[Any]]

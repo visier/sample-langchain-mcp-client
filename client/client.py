@@ -10,7 +10,12 @@ from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.shared.auth import OAuthToken, OAuthClientInformationFull, ProtectedResourceMetadata
 from pydantic import AnyHttpUrl
 
-from client.llm_provider import LLM_PROVIDER, LLM_MODEL_ID, get_current_model_name
+from client.llm_provider import (
+    DEFAULT_BEDROCK_MODEL_ID,
+    LLM_MODEL_ID,
+    LLM_PROVIDER,
+    get_current_model_name,
+)
 from client.mcp_client_backend import create_mcp_client_backend
 from web.web_ui_server import WebUIServer
 from .oauth2 import OAuthPasswordGrantClientProvider
@@ -48,6 +53,7 @@ captured_state = None
 app_agent = None
 available_tools = []
 available_prompts = []
+available_apps = {}
 auth_redirect_url = None
 logout_requested = False
 _skip_browser_open = False
@@ -70,7 +76,7 @@ def get_server_url():
 
 def get_model_name():
     if AGENT_BACKEND == "boto3":
-        return f"Bedrock ({LLM_MODEL_ID})"
+        return f"Bedrock ({LLM_MODEL_ID or DEFAULT_BEDROCK_MODEL_ID})"
     return f"{LLM_PROVIDER} ({get_current_model_name()})"
 
 def get_tools():
@@ -78,6 +84,8 @@ def get_tools():
 
 def get_prompts():
     return available_prompts
+def get_apps():
+    return available_apps
 
 def request_logout():
     global logout_requested, app_agent, auth_redirect_url, captured_code, captured_state, _skip_browser_open
@@ -89,8 +97,9 @@ def request_logout():
     captured_state = None
     available_tools.clear()
     available_prompts.clear()
+    available_apps.clear()
 
-ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts, get_auth_url_func=get_auth_url, request_logout_func=request_logout)
+ui_server.set_callbacks(set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts, get_apps_func=get_apps, get_auth_url_func=get_auth_url, request_logout_func=request_logout)
 
 class InMemoryTokenStorage(TokenStorage):
     def __init__(self):
@@ -180,6 +189,7 @@ async def main(skip_browser_open: bool = False):
             async with backend:
                 available_tools.extend(backend.tool_definitions())
                 available_prompts.extend(backend.prompt_definitions())
+                available_apps.update(backend.app_definitions())
 
                 print(f"\n Authenticated. Available MCP Tools: {[t['name'] for t in available_tools]}")
                 print(f"\n Available MCP Prompts: {[p['name'] for p in available_prompts]}")
@@ -189,6 +199,8 @@ async def main(skip_browser_open: bool = False):
                 ui_server.set_callbacks(
                     set_captured_code, get_agent, get_server_url, get_model_name, get_tools, get_prompts,
                     get_prompt_messages_async=backend.get_prompt_messages,
+                    get_apps_func=get_apps,
+                    read_app_resource_async=backend.read_app_resource,
                     get_auth_url_func=get_auth_url,
                     request_logout_func=request_logout,
                 )

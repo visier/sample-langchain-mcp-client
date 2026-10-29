@@ -8,7 +8,6 @@ import asyncio
 import contextlib
 
 import httpx
-from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import Prompt, TextContent
 
@@ -16,8 +15,15 @@ from client.mcp_client_backend import MCPClientBackend
 from client.agent_backend import AgentBackend
 from client.bedrock.bedrock_tool import BedrockTool
 from client.bedrock.bedrock_agent_backend import BedrockAgentBackend
-from client.llm_provider import LLM_MODEL_ID, BEDROCK_REGION
+from client.llm_provider import BEDROCK_REGION, DEFAULT_BEDROCK_MODEL_ID, LLM_MODEL_ID
 from client.messages import SYSTEM_PROMPT
+from client.mcp_apps import (
+    MCPAppsClientSession,
+    MCPToolResult,
+    app_uri,
+    run_on_loop,
+    serialize_app_resource,
+)
 
 
 class BedrockMCPClientBackend(MCPClientBackend):
@@ -26,10 +32,11 @@ class BedrockMCPClientBackend(MCPClientBackend):
     def __init__(self, url: str, auth: httpx.Auth) -> None:
         self._url = url
         self._auth = auth
-        self._session: ClientSession | None = None
+        self._session: MCPAppsClientSession | None = None
         self._exit_stack: contextlib.AsyncExitStack | None = None
         self._main_loop: asyncio.AbstractEventLoop | None = None
         self._tools: list[BedrockTool] = []
+        self._raw_tools: list = []
         self._prompts: list[Prompt] = []
 
     async def __aenter__(self) -> "BedrockMCPClientBackend":
@@ -46,10 +53,11 @@ class BedrockMCPClientBackend(MCPClientBackend):
             streamable_http_client(self._url, http_client=http_client)
         )
         self._session = await self._exit_stack.enter_async_context(
-            ClientSession(read, write)
+            MCPAppsClientSession(read, write)
         )
         await self._session.initialize()
-        self._tools = [self._to_tool_def(t) for t in (await self._session.list_tools()).tools]
+        self._raw_tools = (await self._session.list_tools()).tools
+        self._tools = [self._to_tool_def(t) for t in self._raw_tools]
         self._prompts = (await self._session.list_prompts()).prompts
         return self
 
@@ -62,18 +70,31 @@ class BedrockMCPClientBackend(MCPClientBackend):
             {
                 'name': t.name,
                 'description': t.description or 'No description available',
-                'args': t.schema.get('properties', {}),
-                'args_schema': t.schema,
+                'args': t.inputSchema.get('properties', {}),
+                'args_schema': t.inputSchema,
             }
-            for t in self._tools
+            for t in self._raw_tools
         ]
+
+    def app_definitions(self) -> dict[str, str]:
+        return {
+            tool.name: uri
+            for tool in self._raw_tools
+            if (uri := app_uri(tool)) is not None
+        }
+
+    async def read_app_resource(self, uri: str) -> dict:
+        if uri not in self.app_definitions().values():
+            raise PermissionError("The URI was not declared by an MCP App tool")
+        result = await run_on_loop(lambda: self._session.read_resource(uri), self._main_loop)
+        return serialize_app_resource(result, uri)
 
     @property
     def prompts(self) -> list[Prompt]:
         return self._prompts
 
     def create_agent(self, verbose: bool = False) -> AgentBackend:
-        model_id = LLM_MODEL_ID or "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        model_id = LLM_MODEL_ID or DEFAULT_BEDROCK_MODEL_ID
         print(f"Using BedrockAgentBackend with model {model_id}")
         return BedrockAgentBackend(
             tools=self._tools,
@@ -102,7 +123,7 @@ class BedrockMCPClientBackend(MCPClientBackend):
         main_loop = self._main_loop
         name = tool.name
 
-        async def invoke(args: dict) -> str:
+        async def invoke(args: dict) -> MCPToolResult:
             try:
                 # ClientSession is bound to main_loop. If invoke is called from a
                 # different event loop (e.g. the web server thread), bridge the call
@@ -115,10 +136,13 @@ class BedrockMCPClientBackend(MCPClientBackend):
                         session.call_tool(name, args), main_loop
                     )
                     result = await asyncio.wrap_future(fut)
-                parts = [c.text for c in result.content if isinstance(c, TextContent)]
-                return "\n".join(parts) if parts else "(no output)"
+                return MCPToolResult.from_mcp(result)
             except Exception as exc:
-                return f"Error calling tool '{name}': {exc}"
+                return MCPToolResult(
+                    content=[{"type": "text", "text": f"Error calling tool '{name}': {exc}"}],
+                    structured_content=None,
+                    is_error=True,
+                )
 
         return BedrockTool(
             name=name,

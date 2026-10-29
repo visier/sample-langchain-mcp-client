@@ -33,7 +33,23 @@ class FinalChunk:
     error: str | None = None
 
 
-AgentChunk = ThinkingChunk | FinalChunk
+@dataclass
+class ToolCallChunk:
+    tool_call_id: str
+    name: str
+    arguments: dict
+
+
+@dataclass
+class ToolResultChunk:
+    tool_call_id: str
+    content: list[dict]
+    structured_content: dict | None = None
+    is_error: bool = False
+    meta: dict | None = None
+
+
+AgentChunk = ThinkingChunk | ToolCallChunk | ToolResultChunk | FinalChunk
 
 
 # ---------------------------------------------------------------------------

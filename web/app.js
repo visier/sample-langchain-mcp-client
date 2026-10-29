@@ -1,8 +1,23 @@
 let isProcessing = false;
 let availablePromptsList = [];
+let appDefinitions = {};
+let sandboxUrl = '';
+let activeMcpApp = null;
+let pendingMcpAppCall = null;
+let appBridgeModule;
+
+function loadAppBridge() {
+    appBridgeModule ||= import(
+        'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@2.0.4/app-bridge/+esm'
+    );
+    return appBridgeModule;
+}
 
 // Load server info when page loads
 document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('askButton').addEventListener('click', askAgent);
+    document.getElementById('loadPromptButton').addEventListener('click', loadPromptIntoQuestion);
+    document.getElementById('closeMcpAppButton').addEventListener('click', clearMcpApp);
     loadServerInfo();
 });
 
@@ -17,6 +32,8 @@ async function loadServerInfo() {
             availablePromptsList = data.prompts || [];
             renderPromptsList(availablePromptsList);
             populatePromptSelect(availablePromptsList);
+            appDefinitions = data.apps || {};
+            sandboxUrl = data.sandboxUrl || '';
             updateAskButtonState();
         } else {
             document.getElementById('serverUrl').textContent = 'Server URL not available';
@@ -332,6 +349,175 @@ function formatSchemaForDisplay(schema) {
     }
 }
 
+async function fetchAppResource(uri) {
+    const response = await fetch(`/mcp-app/resource?${new URLSearchParams({ uri })}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Could not load ${uri}`);
+    return data;
+}
+
+function clearMcpApp() {
+    pendingMcpAppCall = null;
+    void activeMcpApp?.destroy();
+    activeMcpApp = null;
+    document.getElementById('mcpAppContent').replaceChildren();
+    document.getElementById('mcpAppSection').hidden = true;
+}
+
+function handleToolCall(event) {
+    const resourceUri = appDefinitions[event.name];
+    if (!resourceUri) return;
+    void activeMcpApp?.destroy();
+    activeMcpApp = null;
+    const record = { event, result: null };
+    pendingMcpAppCall = record;
+    void showMcpApp(record, resourceUri);
+}
+
+function handleToolResult(event) {
+    if (pendingMcpAppCall?.event.toolCallId !== event.toolCallId) return;
+    pendingMcpAppCall.result = event;
+    activeMcpApp?.deliverResult(event);
+}
+
+async function showMcpApp(record, resourceUri) {
+    const section = document.getElementById('mcpAppSection');
+    const content = document.getElementById('mcpAppContent');
+    const status = document.getElementById('mcpAppStatus');
+    section.hidden = false;
+    content.replaceChildren();
+    status.textContent = `Loading ${record.event.name}...`;
+
+    try {
+        const [resource, bridgeModule] = await Promise.all([
+            fetchAppResource(resourceUri),
+            loadAppBridge(),
+        ]);
+        if (pendingMcpAppCall !== record) return;
+        activeMcpApp = new MCPAppView(record, resource, bridgeModule);
+        if (record.result) activeMcpApp.deliverResult(record.result);
+    } catch (error) {
+        if (pendingMcpAppCall !== record) return;
+        status.textContent = 'App failed to load';
+        const message = document.createElement('div');
+        message.className = 'mcp-app-error';
+        message.textContent = error.message;
+        content.replaceChildren(message);
+    }
+}
+
+class MCPAppView {
+    constructor(record, resource, bridgeModule) {
+        this.record = record;
+        this.ready = false;
+        this.inputSent = false;
+        this.pendingResult = null;
+        this.destroyed = false;
+
+        const status = document.getElementById('mcpAppStatus');
+        const content = document.getElementById('mcpAppContent');
+        this.frame = document.createElement('iframe');
+        this.frame.className = 'mcp-app-frame';
+        this.frame.title = `MCP App for ${record.event.name}`;
+        this.frame.src = sandboxUrl;
+        this.frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
+        const allow = bridgeModule.buildAllowAttribute(resource.meta?.permissions);
+        if (allow) this.frame.allow = allow;
+        content.replaceChildren(this.frame);
+
+        this.bridge = new bridgeModule.AppBridge(
+            null,
+            { name: 'sample-langchain-mcp-client', version: '0.1.0' },
+            {
+                openLinks: {},
+                message: { text: {} },
+                sandbox: {
+                    csp: resource.meta?.csp,
+                    permissions: resource.meta?.permissions,
+                },
+            },
+        );
+
+        this.bridge.onsandboxready = () => {
+            void this.bridge.sendSandboxResourceReady({
+                html: resource.html,
+                sandbox: 'allow-scripts allow-forms allow-same-origin',
+                csp: resource.meta?.csp,
+                permissions: resource.meta?.permissions,
+            });
+        };
+        this.bridge.oninitialized = () => {
+            this.ready = true;
+            status.textContent = record.result ? `${record.event.name} complete` : `${record.event.name} ready`;
+            this.flush();
+        };
+        this.bridge.onsizechange = ({ height }) => {
+            if (typeof height === 'number' && Number.isFinite(height) && height > 0) {
+                this.frame.style.height = `${Math.max(Math.ceil(height), 120)}px`;
+            }
+        };
+        this.bridge.onopenlink = async ({ url }) => {
+            const parsed = new URL(String(url));
+            if (!['http:', 'https:'].includes(parsed.protocol)) {
+                throw new Error('Only HTTP(S) links may be opened');
+            }
+            window.open(parsed.href, '_blank', 'noopener,noreferrer');
+            return {};
+        };
+        this.bridge.onmessage = async (params) => {
+            const text = (params.content || [])
+                .filter((part) => part.type === 'text')
+                .map((part) => part.text)
+                .join('\n')
+                .trim();
+            if (!text) throw new Error('The app message did not contain text');
+            document.getElementById('questionInput').value = text;
+            updateAskButtonState();
+            return {};
+        };
+
+        const target = this.frame.contentWindow;
+        void this.bridge.connect(new bridgeModule.PostMessageTransport(target, target)).catch((error) => {
+            status.textContent = 'App connection failed';
+            console.error(error);
+        });
+    }
+
+    deliverResult(event) {
+        this.pendingResult = event;
+        document.getElementById('mcpAppStatus').textContent = event.isError
+            ? `${this.record.event.name} failed`
+            : `${this.record.event.name} complete`;
+        this.flush();
+    }
+
+    flush() {
+        if (!this.ready || this.destroyed) return;
+        if (!this.inputSent) {
+            this.inputSent = true;
+            void this.bridge.sendToolInput({ arguments: this.record.event.arguments || {} });
+        }
+        if (this.pendingResult) {
+            const event = this.pendingResult;
+            this.pendingResult = null;
+            const result = {
+                content: event.content || [],
+                isError: Boolean(event.isError),
+            };
+            if (event.structuredContent != null) result.structuredContent = event.structuredContent;
+            if (event._meta != null) result._meta = event._meta;
+            void this.bridge.sendToolResult(result);
+        }
+    }
+
+    async destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        await this.bridge.close();
+        this.frame.remove();
+    }
+}
+
 document.getElementById('questionInput').addEventListener('input', updateAskButtonState);
 document.getElementById('questionInput').addEventListener('keydown', function(e) {
     // Submit on Ctrl+Enter or Cmd+Enter; allow Enter for new lines otherwise
@@ -351,6 +537,7 @@ async function askAgent() {
     }
 
     // Update UI to show processing state
+    clearMcpApp();
     isProcessing = true;
     document.getElementById('askButton').disabled = true;
     document.getElementById('spinner').style.display = 'block';
@@ -403,6 +590,10 @@ async function askAgent() {
                                 thinkingEl.value = thinkingParts.join('\n\n');
                                 thinkingStatusEl.textContent = 'Reasoning in progress...';
                                 thinkingEl.scrollTop = thinkingEl.scrollHeight;
+                            } else if (data.type === 'tool_call') {
+                                handleToolCall(data);
+                            } else if (data.type === 'tool_result') {
+                                handleToolResult(data);
                             } else if (data.type === 'done') {
                                 // Final event: set thinking, response, and stop spinner
                                 if (data.thinking) thinkingEl.value = data.thinking;
@@ -460,3 +651,9 @@ async function askAgent() {
     document.getElementById('loadingText').style.display = 'none';
     updateAskButtonState();
 }
+
+// Dynamically rendered tool and prompt headers still use inline handlers.
+Object.assign(window, {
+    togglePrompt,
+    toggleTool,
+});

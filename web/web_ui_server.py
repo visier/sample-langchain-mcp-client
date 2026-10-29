@@ -1,11 +1,12 @@
 import asyncio
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import os
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 from threading import Thread
 import webbrowser
 
-from client.agent_backend import ThinkingChunk, FinalChunk
+from client.agent_backend import FinalChunk, ThinkingChunk, ToolCallChunk, ToolResultChunk
 
 
 class WebUIHandler(BaseHTTPRequestHandler):
@@ -13,6 +14,13 @@ class WebUIHandler(BaseHTTPRequestHandler):
         # Parse the URL to get the path without query parameters
         parsed_url = urlparse(self.path)
         path = parsed_url.path
+
+        if getattr(self.server, "server_port", None) == WebUIHandler.sandbox_port:
+            if path == "/mcp-app-sandbox.html":
+                self._serve_asset("mcp_app_sandbox.html", "text/html; charset=utf-8")
+            else:
+                self._send_json_response({"error": "Not found"}, 404)
+            return
         
         if path == '/callback':
             query = parse_qs(parsed_url.query)
@@ -80,6 +88,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
             model_name = "Model not available"
             tools_list = []
             prompts_list = []
+            apps = {}
 
             if hasattr(WebUIHandler, 'get_server_url'):
                 server_url = WebUIHandler.get_server_url()
@@ -89,17 +98,31 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 tools_list = WebUIHandler.get_tools()
             if hasattr(WebUIHandler, 'get_prompts'):
                 prompts_list = WebUIHandler.get_prompts()
+            if hasattr(WebUIHandler, 'get_apps'):
+                apps = WebUIHandler.get_apps()
 
             response_data = {
                 'success': True,
                 'serverUrl': server_url,
                 'modelName': model_name,
                 'tools': tools_list,
-                'prompts': prompts_list
+                'prompts': prompts_list,
+                'apps': apps,
+                'sandboxUrl': f'http://localhost:{WebUIHandler.sandbox_port}/mcp-app-sandbox.html',
             }
             self.wfile.write(json.dumps(response_data).encode('utf-8'))
+
+        elif path == '/mcp-app/resource':
+            uri = parse_qs(parsed_url.query).get('uri', [''])[0]
+            try:
+                result = self._run_async(WebUIHandler.read_app_resource_async(uri))
+                self._send_json_response(result)
+            except PermissionError as exc:
+                self._send_json_response({'error': str(exc)}, 403)
+            except Exception as exc:
+                self._send_json_response({'error': str(exc)}, 502)
         
-        elif path == '/assets/logo.png' or path == '/styles.css' or path == '/app.js':
+        elif path in ('/assets/logo.png', '/styles.css', '/app.js'):
             import os
             script_dir = os.path.dirname(os.path.abspath(__file__))
             
@@ -119,7 +142,10 @@ class WebUIHandler(BaseHTTPRequestHandler):
                     
                 self.send_response(200)
                 self.send_header('Content-type', content_type)
-                self.send_header('Cache-Control', 'public, max-age=3600')
+                self.send_header(
+                    'Cache-Control',
+                    'no-store' if path == '/app.js' else 'public, max-age=3600',
+                )
                 self.end_headers()
                 self.wfile.write(content)
                 
@@ -136,6 +162,10 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"Not found")
     
     def do_POST(self):
+        if getattr(self.server, "server_port", None) == WebUIHandler.sandbox_port:
+            self._send_json_response({'error': 'Not found'}, 404)
+            return
+
         if self.path == '/get-prompt-content':
             try:
                 content_length = int(self.headers['Content-Length'])
@@ -203,6 +233,22 @@ class WebUIHandler(BaseHTTPRequestHandler):
                         async for chunk in agent.astream(question):
                             if isinstance(chunk, ThinkingChunk):
                                 send_sse({"type": "thinking", "content": chunk.content})
+                            elif isinstance(chunk, ToolCallChunk):
+                                send_sse({
+                                    "type": "tool_call",
+                                    "toolCallId": chunk.tool_call_id,
+                                    "name": chunk.name,
+                                    "arguments": chunk.arguments,
+                                })
+                            elif isinstance(chunk, ToolResultChunk):
+                                send_sse({
+                                    "type": "tool_result",
+                                    "toolCallId": chunk.tool_call_id,
+                                    "content": chunk.content,
+                                    "structuredContent": chunk.structured_content,
+                                    "isError": chunk.is_error,
+                                    "_meta": chunk.meta,
+                                })
                             elif isinstance(chunk, FinalChunk):
                                 if chunk.success:
                                     send_sse({"type": "done", "success": True, "response": chunk.response, "thinking": chunk.thinking})
@@ -234,12 +280,34 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
     
-    def _send_json_response(self, data):
-        self.send_response(200)
+    @staticmethod
+    def _run_async(awaitable):
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(awaitable)
+        finally:
+            loop.close()
+
+    def _serve_asset(self, relative_path, content_type):
+        try:
+            with open(os.path.join(os.path.dirname(__file__), relative_path), 'rb') as file:
+                content = file.read()
+            self.send_response(200)
+            self.send_header('Content-type', content_type)
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(content)
+        except FileNotFoundError:
+            self._send_json_response({'error': 'Asset not found'}, 404)
+
+    def _send_json_response(self, data, status=200):
+        content = json.dumps(data).encode('utf-8')
+        self.send_response(status)
         self.send_header('Content-type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Content-Length', str(len(content)))
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode('utf-8'))
+        self.wfile.write(content)
     
     def log_message(self, format, *args):
         # Suppress default logging
@@ -247,9 +315,10 @@ class WebUIHandler(BaseHTTPRequestHandler):
 
 
 class WebUIServer:
-    def __init__(self, oauth_port=8000, ui_port=8001):
+    def __init__(self, oauth_port=8000, ui_port=8001, sandbox_port=8002):
         self.oauth_port = oauth_port
         self.ui_port = ui_port
+        self.sandbox_port = sandbox_port
         
     def set_callbacks(
         self,
@@ -259,7 +328,9 @@ class WebUIServer:
         get_model_name_func=None,
         get_tools_func=None,
         get_prompts_func=None,
+        get_apps_func=None,
         get_prompt_messages_async=None,
+        read_app_resource_async=None,
         get_auth_url_func=None,
         request_logout_func=None,
     ):
@@ -267,6 +338,7 @@ class WebUIServer:
         WebUIHandler.callback_handler = callback_handler
         WebUIHandler.get_agent = get_agent_func
         WebUIHandler.ui_port = self.ui_port
+        WebUIHandler.sandbox_port = self.sandbox_port
         if get_server_url_func:
             WebUIHandler.get_server_url = get_server_url_func
         if get_model_name_func:
@@ -275,8 +347,12 @@ class WebUIServer:
             WebUIHandler.get_tools = get_tools_func
         if get_prompts_func:
             WebUIHandler.get_prompts = get_prompts_func
+        if get_apps_func:
+            WebUIHandler.get_apps = get_apps_func
         if get_prompt_messages_async is not None:
             WebUIHandler.get_prompt_messages_async = get_prompt_messages_async
+        if read_app_resource_async is not None:
+            WebUIHandler.read_app_resource_async = read_app_resource_async
         if get_auth_url_func is not None:
             WebUIHandler.get_auth_url = get_auth_url_func
         if request_logout_func is not None:
@@ -289,12 +365,17 @@ class WebUIServer:
         
     def start_ui_server(self):
         """Start the web UI server"""
-        server = HTTPServer(('localhost', self.ui_port), WebUIHandler)
+        server = ThreadingHTTPServer(('localhost', self.ui_port), WebUIHandler)
         print(f"\nWeb UI available at: http://localhost:{self.ui_port}")
         server.serve_forever()
+
+    def start_sandbox_server(self):
+        ThreadingHTTPServer(('localhost', self.sandbox_port), WebUIHandler).serve_forever()
         
     def start_ui_in_background(self):
         """Start the UI server in a background thread"""
         ui_thread = Thread(target=self.start_ui_server, daemon=True)
+        sandbox_thread = Thread(target=self.start_sandbox_server, daemon=True)
         ui_thread.start()
+        sandbox_thread.start()
         return ui_thread

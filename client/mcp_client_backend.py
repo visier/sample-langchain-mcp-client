@@ -35,6 +35,16 @@ class MCPClientBackend(ABC):
         """Return UI-ready tool info dicts with name, description, args, and args_schema."""
         ...
 
+    @abstractmethod
+    def app_definitions(self) -> dict[str, str]:
+        """Return UI resource URIs keyed by tool name."""
+        ...
+
+    @abstractmethod
+    async def read_app_resource(self, uri: str) -> dict:
+        """Read and validate a declared MCP App HTML resource."""
+        ...
+
     @property
     @abstractmethod
     def prompts(self) -> list[Prompt]: ...
