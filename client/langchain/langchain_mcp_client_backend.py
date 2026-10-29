@@ -48,6 +48,7 @@ class LangChainMCPClientBackend(MCPClientBackend):
         await self._exit_stack.__aenter__()
         http_client = await self._exit_stack.enter_async_context(httpx.AsyncClient(
             auth=self._auth,
+            headers={"User-Agent": "sample-langchain-mcp-client/0.1.0"},
             timeout=httpx.Timeout(30.0, read=None),
         ))
         read, write, _ = await self._exit_stack.enter_async_context(

@@ -17,7 +17,7 @@ function loadAppBridge() {
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('askButton').addEventListener('click', askAgent);
     document.getElementById('loadPromptButton').addEventListener('click', loadPromptIntoQuestion);
-    document.getElementById('closeMcpAppButton').addEventListener('click', clearMcpApp);
+    document.getElementById('closeMcpAppButton').addEventListener('click', toggleMcpApp);
     loadServerInfo();
 });
 
@@ -364,6 +364,18 @@ function clearMcpApp() {
     document.getElementById('mcpAppSection').hidden = true;
 }
 
+function setMcpAppCollapsed(collapsed) {
+    document.getElementById('mcpAppContent').hidden = collapsed;
+    const button = document.getElementById('closeMcpAppButton');
+    button.textContent = collapsed ? 'Expand' : 'Collapse';
+    button.setAttribute('aria-expanded', String(!collapsed));
+}
+
+function toggleMcpApp() {
+    const content = document.getElementById('mcpAppContent');
+    setMcpAppCollapsed(!content.hidden);
+}
+
 function handleToolCall(event) {
     const resourceUri = appDefinitions[event.name];
     if (!resourceUri) return;
@@ -385,6 +397,7 @@ async function showMcpApp(record, resourceUri) {
     const content = document.getElementById('mcpAppContent');
     const status = document.getElementById('mcpAppStatus');
     section.hidden = false;
+    setMcpAppCollapsed(false);
     content.replaceChildren();
     status.textContent = `Loading ${record.event.name}...`;
 

@@ -48,7 +48,11 @@ class BedrockMCPClientBackend(MCPClientBackend):
         # read=None disables the read timeout on the SSE stream. Without it, the
         # background SSE reader times out after 5s waiting for a tool response,
         # crashing the session mid-agent-loop with a ReadTimeout ExceptionGroup.
-        http_client = httpx.AsyncClient(auth=self._auth, timeout=httpx.Timeout(30.0, read=None))
+        http_client = httpx.AsyncClient(
+            auth=self._auth,
+            headers={"User-Agent": "sample-langchain-mcp-client/0.1.0"},
+            timeout=httpx.Timeout(30.0, read=None),
+        )
         read, write, _ = await self._exit_stack.enter_async_context(
             streamable_http_client(self._url, http_client=http_client)
         )
