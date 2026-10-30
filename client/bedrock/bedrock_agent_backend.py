@@ -9,7 +9,16 @@ from typing import AsyncIterator
 
 import boto3
 
-from client.agent_backend import AgentBackend, AgentChunk, ThinkingChunk, FinalChunk, extract_final_response
+from client.agent_backend import (
+    AgentBackend,
+    AgentChunk,
+    FinalChunk,
+    ThinkingChunk,
+    ToolCallChunk,
+    ToolResultChunk,
+    extract_final_response,
+)
+from client.mcp_apps import MCPToolResult
 from client.bedrock.bedrock_tool import BedrockTool
 from client.messages import SYSTEM_PROMPT
 
@@ -82,7 +91,16 @@ class BedrockAgentBackend(AgentBackend):
                         thinking_lines.append(line)
                         yield ThinkingChunk(content=line)
 
-                        result_text = await self._invoke_tool(tool_name, tool_input)
+                        yield ToolCallChunk(tool_use_id, tool_name, tool_input)
+                        result = await self._invoke_tool(tool_name, tool_input)
+                        result_text = result.text_for_model()
+                        yield ToolResultChunk(
+                            tool_call_id=tool_use_id,
+                            content=result.content,
+                            structured_content=result.structured_content,
+                            is_error=result.is_error,
+                            meta=result.meta,
+                        )
 
                         short = result_text[:500] + ("..." if len(result_text) > 500 else "")
                         line = f"[tools] Tool result: {short}"
@@ -121,8 +139,11 @@ class BedrockAgentBackend(AgentBackend):
             for tool in tools
         ]
 
-    async def _invoke_tool(self, tool_name: str, tool_input: dict) -> str:
+    async def _invoke_tool(self, tool_name: str, tool_input: dict) -> MCPToolResult:
         tool: BedrockTool | None = self._tools_by_name.get(tool_name)
         if tool is None:
-            return f"Error: tool '{tool_name}' not found."
+            return MCPToolResult(
+                content=[{"type": "text", "text": f"Error: tool '{tool_name}' not found."}],
+                is_error=True,
+            )
         return await tool.invoke(tool_input)

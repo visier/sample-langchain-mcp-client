@@ -16,6 +16,7 @@ HAS_ANTHROPIC = os.environ.get("ANTHROPIC_API_KEY") is not None
 
 HAS_BEDROCK = os.environ.get("AWS_BEARER_TOKEN_BEDROCK") is not None
 BEDROCK_REGION = os.environ.get("AWS_REGION_BEDROCK", "us-west-2")
+DEFAULT_BEDROCK_MODEL_ID = "us.amazon.nova-2-lite-v1:0"
 
 HAS_OPENAI = os.environ.get("OPENAI_API_KEY") is not None
 
@@ -45,7 +46,7 @@ def get_llm_provider() -> BaseChatModel:
     if LLM_PROVIDER == "bedrock":
         if not HAS_BEDROCK:
             raise ValueError("Selected Bedrock as provider but AWS_BEARER_TOKEN_BEDROCK environment variable is not set.")
-        current_model_name = LLM_MODEL_ID or "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        current_model_name = LLM_MODEL_ID or DEFAULT_BEDROCK_MODEL_ID
         print(f"Creating Bedrock chat agent with model {current_model_name}")
         return ChatBedrockConverse(
             model_id=current_model_name,

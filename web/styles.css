@@ -400,6 +400,39 @@ body {
     outline: none;
 }
 
+.mcp-app-section {
+    margin-top: 2rem;
+}
+
+.mcp-app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.mcp-app-close {
+    padding: 0.35rem 0.75rem;
+    border: 1px solid currentColor;
+    border-radius: 5px;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+}
+
+.mcp-app-frame {
+    display: block;
+    width: 100%;
+    height: 150px;
+    min-height: 120px;
+    border: 0;
+    background: var(--visier-white);
+}
+
+.mcp-app-error {
+    padding: 1rem;
+    color: #b91c1c;
+}
+
 .spinner {
     display: none;
     width: 24px;

@@ -7,8 +7,17 @@ ThinkingChunk / FinalChunk protocol.
 """
 from typing import AsyncIterator
 
-from client.agent_backend import AgentBackend, AgentChunk, ThinkingChunk, FinalChunk, extract_final_response
+from client.agent_backend import (
+    AgentBackend,
+    AgentChunk,
+    FinalChunk,
+    ThinkingChunk,
+    ToolCallChunk,
+    ToolResultChunk,
+    extract_final_response,
+)
 from client.constants import FINAL_RESPONSE_MARKER
+from client.mcp_apps import model_dump_json
 
 
 class LangChainAgentBackend(AgentBackend):
@@ -19,38 +28,78 @@ class LangChainAgentBackend(AgentBackend):
 
     async def astream(self, question: str) -> AsyncIterator[AgentChunk]:
         last_values = None
-        thinking_lines: list[str] = []
         inputs = {"messages": [{"role": "user", "content": question}]}
 
-        async for chunk in self._agent.astream(inputs, stream_mode=["updates", "values"]):
-            if isinstance(chunk, tuple) and len(chunk) == 2:
-                mode, payload = chunk
-                if mode == "values":
-                    last_values = payload
-                elif mode == "updates":
-                    line = LangChainAgentBackend._format_stream_update(payload)
-                    if line:
-                        thinking_lines.append(line)
-                        yield ThinkingChunk(content=line)
-            elif isinstance(chunk, dict):
-                if "messages" in chunk and not any(k in chunk for k in ("model", "tools")):
-                    last_values = chunk
-                else:
-                    line = LangChainAgentBackend._format_stream_update(chunk)
-                    if line:
-                        thinking_lines.append(line)
-                        yield ThinkingChunk(content=line)
+        async for mode, payload in self._agent.astream(
+            inputs, stream_mode=["updates", "values"]
+        ):
+            if mode == "values":
+                last_values = payload
+                continue
+            for event in self._structured_tool_events(payload):
+                yield event
+            if line := self._format_stream_update(payload):
+                yield ThinkingChunk(content=line)
 
         response, thinking = LangChainAgentBackend._extract_final_response_and_thinking(last_values or {})
         yield FinalChunk(response=response, success=True, thinking=thinking)
 
     @staticmethod
-    def _msg_content(msg):
-        if hasattr(msg, "content"):
-            return getattr(msg, "content", None)
-        if isinstance(msg, dict):
-            return msg.get("content")
-        return None
+    def _value(message, name: str, default=None):
+        return message.get(name, default) if isinstance(message, dict) else getattr(message, name, default)
+
+    @staticmethod
+    def _mcp_content(content) -> list[dict]:
+        if isinstance(content, str):
+            return [{"type": "text", "text": content}]
+        if not isinstance(content, list):
+            return []
+        converted = []
+        for item in content:
+            item = model_dump_json(item)
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "image" and "base64" in item:
+                converted.append({
+                    "type": "image",
+                    "data": item["base64"],
+                    "mimeType": item.get("mime_type", "image/png"),
+                })
+            else:
+                converted.append(item)
+        return converted
+
+    @classmethod
+    def _structured_tool_events(cls, update):
+        states = update.values() if isinstance(update, dict) else []
+        for state in states:
+            if not isinstance(state, dict):
+                continue
+            for message in state.get("messages") or []:
+                for call in cls._value(message, "tool_calls", []) or []:
+                    call_id = cls._value(call, "id")
+                    name = cls._value(call, "name")
+                    if call_id and name:
+                        yield ToolCallChunk(
+                            tool_call_id=str(call_id),
+                            name=str(name),
+                            arguments=cls._value(call, "args", {}) or {},
+                        )
+                call_id = cls._value(message, "tool_call_id")
+                if not call_id:
+                    continue
+                artifact = cls._value(message, "artifact") or {}
+                if hasattr(artifact, "model_dump"):
+                    artifact = artifact.model_dump()
+                structured = artifact.get("structured_content") if isinstance(artifact, dict) else None
+                meta = (artifact.get("_meta") or artifact.get("meta")) if isinstance(artifact, dict) else None
+                yield ToolResultChunk(
+                    tool_call_id=str(call_id),
+                    content=cls._mcp_content(cls._value(message, "content")),
+                    structured_content=model_dump_json(structured),
+                    is_error=cls._value(message, "status") == "error",
+                    meta=model_dump_json(meta),
+                )
 
     @staticmethod
     def _format_stream_update(update_dict) -> str | None:
@@ -61,7 +110,7 @@ class LangChainAgentBackend(AgentBackend):
                 continue
             messages = state.get("messages") or []
             for msg in messages:
-                content = LangChainAgentBackend._msg_content(msg)
+                content = LangChainAgentBackend._value(msg, "content")
                 if content:
                     content = str(content).strip()
                 if not content:
