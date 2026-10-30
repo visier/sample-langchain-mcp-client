@@ -36,7 +36,7 @@ class MCPAppsTests(unittest.TestCase):
                 "artifact": {"structured_content": {"total": 3}},
             }]},
         }
-        events = LangChainAgentBackend._structured_tool_events(update, set(), set())
+        events = list(LangChainAgentBackend._structured_tool_events(update))
         self.assertEqual(events[0].tool_call_id, "call-1")
         self.assertEqual(events[1].structured_content, {"total": 3})
 

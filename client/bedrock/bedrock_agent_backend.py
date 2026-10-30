@@ -144,7 +144,6 @@ class BedrockAgentBackend(AgentBackend):
         if tool is None:
             return MCPToolResult(
                 content=[{"type": "text", "text": f"Error: tool '{tool_name}' not found."}],
-                structured_content=None,
                 is_error=True,
             )
         return await tool.invoke(tool_input)

@@ -6,13 +6,6 @@ let activeMcpApp = null;
 let pendingMcpAppCall = null;
 let appBridgeModule;
 
-function loadAppBridge() {
-    appBridgeModule ||= import(
-        'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@2.0.4/app-bridge/+esm'
-    );
-    return appBridgeModule;
-}
-
 // Load server info when page loads
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('askButton').addEventListener('click', askAgent);
@@ -32,7 +25,9 @@ async function loadServerInfo() {
             availablePromptsList = data.prompts || [];
             renderPromptsList(availablePromptsList);
             populatePromptSelect(availablePromptsList);
-            appDefinitions = data.apps || {};
+            appDefinitions = Object.fromEntries(
+                (data.tools || []).filter((tool) => tool.app).map((tool) => [tool.name, tool.app])
+            );
             sandboxUrl = data.sandboxUrl || '';
             updateAskButtonState();
         } else {
@@ -402,13 +397,15 @@ async function showMcpApp(record, resourceUri) {
     status.textContent = `Loading ${record.event.name}...`;
 
     try {
+        appBridgeModule ||= import(
+            'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@2.0.4/app-bridge/+esm'
+        );
         const [resource, bridgeModule] = await Promise.all([
             fetchAppResource(resourceUri),
-            loadAppBridge(),
+            appBridgeModule,
         ]);
         if (pendingMcpAppCall !== record) return;
         activeMcpApp = new MCPAppView(record, resource, bridgeModule);
-        if (record.result) activeMcpApp.deliverResult(record.result);
     } catch (error) {
         if (pendingMcpAppCall !== record) return;
         status.textContent = 'App failed to load';
@@ -423,9 +420,7 @@ class MCPAppView {
     constructor(record, resource, bridgeModule) {
         this.record = record;
         this.ready = false;
-        this.inputSent = false;
-        this.pendingResult = null;
-        this.destroyed = false;
+        this.pendingResult = record.result;
 
         const status = document.getElementById('mcpAppStatus');
         const content = document.getElementById('mcpAppContent');
@@ -462,7 +457,8 @@ class MCPAppView {
         this.bridge.oninitialized = () => {
             this.ready = true;
             status.textContent = record.result ? `${record.event.name} complete` : `${record.event.name} ready`;
-            this.flush();
+            void this.bridge.sendToolInput({ arguments: record.event.arguments || {} });
+            this.sendResult();
         };
         this.bridge.onsizechange = ({ height }) => {
             if (typeof height === 'number' && Number.isFinite(height) && height > 0) {
@@ -501,31 +497,23 @@ class MCPAppView {
         document.getElementById('mcpAppStatus').textContent = event.isError
             ? `${this.record.event.name} failed`
             : `${this.record.event.name} complete`;
-        this.flush();
+        this.sendResult();
     }
 
-    flush() {
-        if (!this.ready || this.destroyed) return;
-        if (!this.inputSent) {
-            this.inputSent = true;
-            void this.bridge.sendToolInput({ arguments: this.record.event.arguments || {} });
-        }
-        if (this.pendingResult) {
-            const event = this.pendingResult;
-            this.pendingResult = null;
-            const result = {
-                content: event.content || [],
-                isError: Boolean(event.isError),
-            };
-            if (event.structuredContent != null) result.structuredContent = event.structuredContent;
-            if (event._meta != null) result._meta = event._meta;
-            void this.bridge.sendToolResult(result);
-        }
+    sendResult() {
+        if (!this.ready || !this.pendingResult) return;
+        const event = this.pendingResult;
+        this.pendingResult = null;
+        const result = {
+            content: event.content || [],
+            isError: Boolean(event.isError),
+        };
+        if (event.structuredContent != null) result.structuredContent = event.structuredContent;
+        if (event._meta != null) result._meta = event._meta;
+        void this.bridge.sendToolResult(result);
     }
 
     async destroy() {
-        if (this.destroyed) return;
-        this.destroyed = true;
         await this.bridge.close();
         this.frame.remove();
     }

@@ -64,8 +64,8 @@ def model_dump_json(value: Any) -> Any:
 @dataclass(frozen=True)
 class MCPToolResult:
     content: list[dict[str, Any]]
-    structured_content: dict[str, Any] | None
-    is_error: bool
+    structured_content: dict[str, Any] | None = None
+    is_error: bool = False
     meta: dict[str, Any] | None = None
 
     @classmethod
@@ -91,7 +91,6 @@ class MCPToolResult:
 def serialize_app_resource(
     result: types.ReadResourceResult,
     requested_uri: str,
-    listing_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     for resource in result.contents:
         if str(resource.uri) != requested_uri:
@@ -104,7 +103,7 @@ def serialize_app_resource(
             "uri": requested_uri,
             "mimeType": resource.mimeType,
             "html": resource.text,
-            "meta": model_dump_json(ui_meta(resource) or listing_meta or {}),
+            "meta": model_dump_json(ui_meta(resource)),
         }
     raise ValueError(f"Server did not return {requested_uri!r}")
 

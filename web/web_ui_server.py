@@ -88,7 +88,6 @@ class WebUIHandler(BaseHTTPRequestHandler):
             model_name = "Model not available"
             tools_list = []
             prompts_list = []
-            apps = {}
 
             if hasattr(WebUIHandler, 'get_server_url'):
                 server_url = WebUIHandler.get_server_url()
@@ -98,16 +97,12 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 tools_list = WebUIHandler.get_tools()
             if hasattr(WebUIHandler, 'get_prompts'):
                 prompts_list = WebUIHandler.get_prompts()
-            if hasattr(WebUIHandler, 'get_apps'):
-                apps = WebUIHandler.get_apps()
-
             response_data = {
                 'success': True,
                 'serverUrl': server_url,
                 'modelName': model_name,
                 'tools': tools_list,
                 'prompts': prompts_list,
-                'apps': apps,
                 'sandboxUrl': f'http://localhost:{WebUIHandler.sandbox_port}/mcp-app-sandbox.html',
             }
             self.wfile.write(json.dumps(response_data).encode('utf-8'))
@@ -123,37 +118,13 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 self._send_json_response({'error': str(exc)}, 502)
         
         elif path in ('/assets/logo.png', '/styles.css', '/app.js'):
-            import os
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            
-            if path == '/assets/logo.png':
-                asset_path = os.path.join(script_dir, 'assets', 'logo.png')
-                content_type = 'image/png'
-            elif path == '/styles.css':
-                asset_path = os.path.join(script_dir, 'styles.css')
-                content_type = 'text/css'
-            elif path == '/app.js':
-                asset_path = os.path.join(script_dir, 'app.js')
-                content_type = 'application/javascript'
-            
-            try:
-                with open(asset_path, 'rb') as f:
-                    content = f.read()
-                    
-                self.send_response(200)
-                self.send_header('Content-type', content_type)
-                self.send_header(
-                    'Cache-Control',
-                    'no-store' if path == '/app.js' else 'public, max-age=3600',
-                )
-                self.end_headers()
-                self.wfile.write(content)
-                
-            except FileNotFoundError:
-                self.send_response(404)
-                self.send_header('Content-type', 'text/plain')
-                self.end_headers()
-                self.wfile.write(b"Asset not found")
+            asset, content_type = {
+                '/assets/logo.png': ('assets/logo.png', 'image/png'),
+                '/styles.css': ('styles.css', 'text/css'),
+                '/app.js': ('app.js', 'application/javascript'),
+            }[path]
+            cache = 'no-store' if path == '/app.js' else 'public, max-age=3600'
+            self._serve_asset(asset, content_type, cache)
         
         else:
             self.send_response(404)
@@ -182,21 +153,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
 
                 async def fetch_prompt():
                     messages = await WebUIHandler.get_prompt_messages_async(prompt_name, prompt_arguments)
-                    parts = []
-                    for m in messages:
-                        content = str(m).strip()
-                        if content:
-                            parts.append(content)
-                    return '\n\n'.join(parts) if parts else ''
+                    return '\n\n'.join(filter(None, (str(m).strip() for m in messages)))
 
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_closed():
-                        raise RuntimeError("Event loop is closed")
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                prompt_content = loop.run_until_complete(fetch_prompt())
+                prompt_content = self._run_async(fetch_prompt())
                 self._send_json_response({'success': True, 'promptContent': prompt_content})
             except Exception as e:
                 self._send_json_response({'success': False, 'error': str(e)})
@@ -265,14 +224,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 self.send_header("Connection", "close")
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_closed():
-                        raise RuntimeError("Event loop is closed")
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                loop.run_until_complete(stream_agent())
+                self._run_async(stream_agent())
                 return
             except Exception as e:
                 self._send_json_response({'success': False, 'error': str(e)})
@@ -282,19 +234,15 @@ class WebUIHandler(BaseHTTPRequestHandler):
     
     @staticmethod
     def _run_async(awaitable):
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(awaitable)
-        finally:
-            loop.close()
+        return asyncio.run(awaitable)
 
-    def _serve_asset(self, relative_path, content_type):
+    def _serve_asset(self, relative_path, content_type, cache='no-store'):
         try:
             with open(os.path.join(os.path.dirname(__file__), relative_path), 'rb') as file:
                 content = file.read()
             self.send_response(200)
             self.send_header('Content-type', content_type)
-            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Cache-Control', cache)
             self.end_headers()
             self.wfile.write(content)
         except FileNotFoundError:
@@ -328,7 +276,6 @@ class WebUIServer:
         get_model_name_func=None,
         get_tools_func=None,
         get_prompts_func=None,
-        get_apps_func=None,
         get_prompt_messages_async=None,
         read_app_resource_async=None,
         get_auth_url_func=None,
@@ -347,8 +294,6 @@ class WebUIServer:
             WebUIHandler.get_tools = get_tools_func
         if get_prompts_func:
             WebUIHandler.get_prompts = get_prompts_func
-        if get_apps_func:
-            WebUIHandler.get_apps = get_apps_func
         if get_prompt_messages_async is not None:
             WebUIHandler.get_prompt_messages_async = get_prompt_messages_async
         if read_app_resource_async is not None:
