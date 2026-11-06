@@ -116,7 +116,7 @@ Before running the client, you must set the following environment variables:
 - **Examples**:
   - Ollama: `qwen2.5`, `llama3.1`
   - Anthropic: `claude-3-5-sonnet-20241022`
-  - Bedrock (LangChain or boto3): `us.amazon.nova-2-lite-v1:0`
+  - Bedrock (LangChain or boto3): `us.anthropic.claude-sonnet-5-5`
   - OpenAI: `gpt-4-turbo`
   - Azure OpenAI: **the deployment name** you configured on your Azure OpenAI resource (not the underlying model name). Required when `LLM_PROVIDER=azure_openai`.
 
@@ -208,7 +208,7 @@ Uses the inline boto3 Converse API — no LangChain in the agent loop.
 ```bash
 export AGENT_BACKEND="boto3"
 export AWS_REGION_BEDROCK="us-west-2"              # Optional, defaults to us-west-2
-export LLM_MODEL_ID="us.amazon.nova-2-lite-v1:0"
+export LLM_MODEL_ID="us.anthropic.claude-sonnet-5-5"
 
 # AWS credentials are resolved from ~/.aws/credentials for boto3 SDK. No AWS_BEARER_TOKEN_BEDROCK needed.
 ```
@@ -222,7 +222,7 @@ export AWS_BEARER_TOKEN_BEDROCK="your-bearer-token"
 export AWS_REGION_BEDROCK="us-west-2"  # Optional, defaults to us-west-2
 
 # Optional: Use specific Bedrock model
-export LLM_MODEL_ID="us.amazon.nova-2-lite-v1:0"
+export LLM_MODEL_ID="us.anthropic.claude-sonnet-5-5"
 ```
 
 #### Option D: Anthropic Direct (Premium Cloud)

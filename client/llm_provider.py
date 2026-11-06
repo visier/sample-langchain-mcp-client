@@ -16,7 +16,7 @@ HAS_ANTHROPIC = os.environ.get("ANTHROPIC_API_KEY") is not None
 
 HAS_BEDROCK = os.environ.get("AWS_BEARER_TOKEN_BEDROCK") is not None
 BEDROCK_REGION = os.environ.get("AWS_REGION_BEDROCK", "us-west-2")
-DEFAULT_BEDROCK_MODEL_ID = "us.amazon.nova-2-lite-v1:0"
+DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-5-5"
 
 HAS_OPENAI = os.environ.get("OPENAI_API_KEY") is not None
 
